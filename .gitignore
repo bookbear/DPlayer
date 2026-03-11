@@ -10,3 +10,9 @@ docs/.vuepress/dist
 dist/src/*
 pre*
 .node-version
+# ffmpeg.wasm core (npm postinstall でコピーされる)
+demo/ffmpeg-core.js
+demo/ffmpeg-core.wasm
+# 開発用自己署名証明書
+webpack/dev-cert.pem
+webpack/dev-key.pem

@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DPlayer - ローカル動画プレイヤー</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #0f0f0f;
+            color: #e0e0e0;
+            font-family: "Segoe UI", "Hiragino Sans", sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 24px 16px;
+            gap: 16px;
+        }
+
+        h1 { font-size: 1.2rem; font-weight: 600; color: #b7daff; }
+
+        /* ---- ドロップゾーン ---- */
+        #drop-zone {
+            width: 100%;
+            max-width: 860px;
+            border: 2px dashed #3a3a6a;
+            border-radius: 12px;
+            padding: 36px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            background: #1a1a2e;
+        }
+        #drop-zone:hover, #drop-zone.dragover {
+            border-color: #b7daff;
+            background: #1e1e38;
+        }
+        #drop-zone .icon { font-size: 2.5rem; margin-bottom: 10px; }
+        #drop-zone .main-text { font-size: 1rem; color: #ddd; margin-bottom: 6px; }
+        #drop-zone .sub-text  { font-size: 0.8rem; color: #666; }
+        #drop-zone .selected-name { font-size: 0.9rem; color: #b7daff; margin-top: 8px; font-weight: 600; }
+        input#video-file { display: none; }
+
+        /* ---- ステータス ---- */
+        #status {
+            width: 100%;
+            max-width: 860px;
+            font-size: 0.82rem;
+            color: #888;
+            min-height: 1.4em;
+            padding: 0 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #status.ok   { color: #7ecb7e; }
+        #status.warn { color: #f0c040; }
+        #status.err  { color: #ff6b6b; }
+
+        /* ---- プログレス ---- */
+        #progress-wrap {
+            width: 100%;
+            max-width: 860px;
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+        }
+        #progress-label { font-size: 0.78rem; color: #888; }
+        progress {
+            width: 100%; height: 5px; border-radius: 3px; appearance: none;
+        }
+        progress::-webkit-progress-bar   { background: #1a1a2e; border-radius: 3px; }
+        progress::-webkit-progress-value { background: #b7daff; border-radius: 3px; }
+
+        /* ---- 字幕トラック選択 ---- */
+        #track-panel {
+            width: 100%;
+            max-width: 860px;
+            background: #1a1a2e;
+            border: 1px solid #2a2a4a;
+            border-radius: 10px;
+            padding: 14px 16px;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .track-panel-title { font-size: 0.82rem; color: #888; }
+        .track-list { display: flex; flex-wrap: wrap; gap: 8px; }
+        .track-btn {
+            background: #2a2a4a;
+            border: 1px solid #4a4a7a;
+            border-radius: 6px;
+            color: #ddd;
+            padding: 6px 14px;
+            font-size: 0.82rem;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .track-btn:hover   { background: #3a3a6a; }
+        .track-btn.active  { background: #b7daff; color: #0f0f1e; font-weight: 700; border-color: #b7daff; }
+        .track-btn.no-sub  { color: #666; border-style: dashed; }
+
+        /* ---- オプション ---- */
+        #options-panel {
+            width: 100%;
+            max-width: 860px;
+            display: none;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+        #options-panel label { font-size: 0.82rem; color: #888; }
+        select {
+            background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px;
+            color: #ddd; padding: 5px 10px; font-size: 0.82rem; cursor: pointer;
+        }
+        #options-panel .sep { flex: 1; }
+
+        /* ---- プレイヤー ---- */
+        #dplayer {
+            width: 100%;
+            max-width: 860px;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+        }
+    </style>
+</head>
+<body>
+    <h1>ローカル動画プレイヤー</h1>
+
+    <!-- ドロップゾーン -->
+    <div id="drop-zone">
+        <input type="file" id="video-file" accept="video/*,.mkv,.ts,.m2ts,.avi,.wmv,.mov">
+        <div class="icon">🎬</div>
+        <div class="main-text">クリックまたは動画ファイルをドラッグ＆ドロップ</div>
+        <div class="sub-text">MP4 / MKV / AVI / TS / WMV など</div>
+        <div class="selected-name" id="selected-name"></div>
+    </div>
+
+    <!-- プログレス -->
+    <div id="progress-wrap">
+        <div id="progress-label">処理中...</div>
+        <progress id="progress-bar" value="0" max="100"></progress>
+    </div>
+
+    <!-- ステータス -->
+    <div id="status">動画ファイルを選択してください。</div>
+
+    <!-- 字幕トラック選択 -->
+    <div id="track-panel">
+        <div class="track-panel-title">字幕トラック（クリックで弾幕として表示）</div>
+        <div class="track-list" id="track-list"></div>
+    </div>
+
+    <!-- オプション -->
+    <div id="options-panel">
+        <label>弾幕の流れ方</label>
+        <select id="dan-type">
+            <option value="right">右から左</option>
+            <option value="top">上固定</option>
+            <option value="bottom">下固定</option>
+        </select>
+        <label>色</label>
+        <input type="color" id="dan-color" value="#ffffff"
+            style="width:36px;height:28px;border:none;background:none;cursor:pointer;border-radius:4px;">
+        <div class="sep"></div>
+        <label style="font-size:0.75rem;color:#555;">字幕のない動画も再生可能</label>
+    </div>
+
+    <!-- DPlayer -->
+    <div id="dplayer"></div>
+
+    <script src="DPlayer.js"></script>
+    <script type="module">
+        // -----------------------------------------------------------------------
+        // ffmpeg.wasm
+        // -----------------------------------------------------------------------
+        let FFmpeg = null, fetchFile = null, ffmpeg = null;
+        const canUseSAB = typeof SharedArrayBuffer !== 'undefined';
+
+        if (canUseSAB) {
+            try {
+                const fm = await import('/ffmpeg/index.js');
+                const fu = await import('/ffmpeg-util/index.js');
+                FFmpeg = fm.FFmpeg;
+                fetchFile = fu.fetchFile;
+            } catch (e) {
+                console.warn('ffmpeg.wasm load failed:', e);
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // 字幕パーサー
+        // -----------------------------------------------------------------------
+        function parseSRTTime(s) {
+            const p = s.replace(',', '.').split(':');
+            return p.length === 3
+                ? +p[0] * 3600 + +p[1] * 60 + parseFloat(p[2])
+                : +p[0] * 60 + parseFloat(p[1]);
+        }
+
+        function parseSRT(text, color, type) {
+            return text.trim().split(/\n\n+/).flatMap((block) => {
+                const lines = block.split('\n');
+                const tl = lines.find((l) => l.includes('-->'));
+                if (!tl) return [];
+                const m = tl.match(/(\d{1,2}:\d{2}(?::\d{2})?[,.\d]*)\s*-->/);
+                if (!m) return [];
+                const time = parseSRTTime(m[1]);
+                const txt = lines.slice(lines.indexOf(tl) + 1).join('\n')
+                    .replace(/<[^>]+>/g, '').replace(/\{[^}]+\}/g, '').trim();
+                return txt ? [{ time, text: txt, color, type, size: 'medium' }] : [];
+            });
+        }
+
+        function assColorToHex(s) {
+            const h = s.replace(/[^0-9A-Fa-f]/g, '');
+            if (h.length < 6) return '#ffffff';
+            const b = h.slice(-6);
+            return '#' + b.slice(4,6) + b.slice(2,4) + b.slice(0,2);
+        }
+
+        function parseASS(text, type) {
+            const styles = {};
+            let sf = [], df = [], inS = false, inE = false;
+            const list = [];
+            for (const raw of text.split('\n')) {
+                const line = raw.trim(), ll = line.toLowerCase();
+                if (ll === '[v4+ styles]' || ll === '[v4 styles]') { inS=true; inE=false; continue; }
+                if (ll === '[events]') { inE=true; inS=false; continue; }
+                if (line.startsWith('[')) { inS=false; inE=false; continue; }
+                if (inS) {
+                    if (line.startsWith('Format:')) sf = line.replace('Format:','').split(',').map(f=>f.trim());
+                    else if (line.startsWith('Style:')) {
+                        const v = splitN(line.replace('Style:',''), sf.length);
+                        const o = Object.fromEntries(sf.map((f,i)=>[f, v[i]??'']));
+                        styles[o.Name??'Default'] = { color: assColorToHex(o.PrimaryColour??'') };
+                    }
+                }
+                if (inE) {
+                    if (line.startsWith('Format:')) df = line.replace('Format:','').split(',').map(f=>f.trim());
+                    else if (line.startsWith('Dialogue:')) {
+                        const v = splitN(line.replace('Dialogue:',''), df.length);
+                        const d = Object.fromEntries(df.map((f,i)=>[f, v[i]??'']));
+                        const time = parseASSTime(d.Start??'');
+                        const raw2 = d.Text??'';
+                        const ic = raw2.match(/\{[^}]*\\c&H([0-9A-Fa-f]{6})&[^}]*\}/);
+                        const color = ic
+                            ? '#'+ic[1].slice(4,6)+ic[1].slice(2,4)+ic[1].slice(0,2)
+                            : (styles[d.Style]?.color ?? '#ffffff');
+                        const txt = raw2.replace(/\{[^}]+\}/g,'').replace(/\\[Nn]/g,'\n').trim();
+                        if (txt) list.push({ time, text: txt, color, type, size: 'medium' });
+                    }
+                }
+            }
+            return list.sort((a,b)=>a.time-b.time);
+        }
+
+        function parseASSTime(s) {
+            const m = s.trim().match(/(\d+):(\d{2}):(\d{2})\.(\d{2})/);
+            return m ? +m[1]*3600 + +m[2]*60 + +m[3] + +m[4]/100 : 0;
+        }
+
+        function splitN(line, max) {
+            const p = line.split(',');
+            if (max<=0 || p.length<=max) return p.map(s=>s.trim());
+            return [...p.slice(0,max-1).map(s=>s.trim()), p.slice(max-1).join(',').trim()];
+        }
+
+        function parseSubtitleText(text, filename, color, type) {
+            const ext = filename.split('.').pop().toLowerCase();
+            if (ext==='ass'||ext==='ssa') return parseASS(text, type);
+            // VTT も SRT パーサーで処理可能
+            const body = text.replace(/^WEBVTT[^\n]*\n/,'').trim();
+            return parseSRT(body, color, type);
+        }
+
+        // -----------------------------------------------------------------------
+        // DPlayer
+        // -----------------------------------------------------------------------
+        let dp = null, currentVideoUrl = null;
+        let currentFile = null, ffmpegHasFullFile = false;
+
+        function initPlayer(videoUrl, danmakuData) {
+            if (dp) { dp.destroy(); dp = null; }
+            if (currentVideoUrl?.startsWith('blob:')) URL.revokeObjectURL(currentVideoUrl);
+            currentVideoUrl = videoUrl;
+
+            dp = new DPlayer({
+                container: document.getElementById('dplayer'),
+                video: { url: videoUrl, type: 'auto' },
+                danmaku: { id: 'local', user: '字幕', speedRate: 1.0, fontSize: 35 },
+                apiBackend: {
+                    read: (o) => o.success(danmakuData || []),
+                    send: (o) => o.success(),
+                },
+            });
+        }
+
+        function applyDanmaku(danmakuData) {
+            if (!dp) return;
+            dp.danmaku.dan = [...danmakuData].sort((a,b)=>a.time-b.time);
+            dp.danmaku.seek();
+            setStatus(`字幕 ${danmakuData.length} 件を弾幕として表示中`, 'ok');
+        }
+
+        // -----------------------------------------------------------------------
+        // UI ヘルパー
+        // -----------------------------------------------------------------------
+        function setStatus(msg, level='') {
+            const el = document.getElementById('status');
+            el.textContent = msg; el.className = level;
+        }
+
+        function setProgress(label, value) {
+            const wrap = document.getElementById('progress-wrap');
+            if (label === null) { wrap.style.display='none'; return; }
+            wrap.style.display = 'flex';
+            document.getElementById('progress-label').textContent = label;
+            document.getElementById('progress-bar').value = value ?? 0;
+        }
+
+        function getDanOptions() {
+            return {
+                color: document.getElementById('dan-color').value,
+                type:  document.getElementById('dan-type').value,
+            };
+        }
+
+        // -----------------------------------------------------------------------
+        // 字幕トラック UI
+        // -----------------------------------------------------------------------
+        let tracks = [];
+        let activeTrackIndex = null;
+
+        function renderTrackPanel() {
+            const panel = document.getElementById('track-panel');
+            const list  = document.getElementById('track-list');
+            list.innerHTML = '';
+
+            if (tracks.length === 0) {
+                panel.style.display = 'none';
+                return;
+            }
+
+            panel.style.display = 'flex';
+
+            // 「なし」ボタン
+            const noneBtn = document.createElement('button');
+            noneBtn.className = 'track-btn no-sub' + (activeTrackIndex === null ? ' active' : '');
+            noneBtn.textContent = '弾幕なし';
+            noneBtn.addEventListener('click', () => {
+                activeTrackIndex = null;
+                applyDanmaku([]);
+                renderTrackPanel();
+            });
+            list.appendChild(noneBtn);
+
+            for (const track of tracks) {
+                const btn = document.createElement('button');
+                btn.className = 'track-btn' + (activeTrackIndex === track.index ? ' active' : '');
+                btn.textContent = `Track ${track.index + 1}${track.lang ? ` (${track.lang})` : ''} [${track.codec}]`;
+                btn.addEventListener('click', () => selectTrack(track));
+                list.appendChild(btn);
+            }
+        }
+
+        async function selectTrack(track) {
+            activeTrackIndex = track.index;
+            renderTrackPanel();
+            await extractAndApply(track);
+        }
+
+        // -----------------------------------------------------------------------
+        // メイン処理: 動画ファイルが選ばれたとき
+        // -----------------------------------------------------------------------
+        async function onVideoSelected(file) {
+            currentFile = file;
+            ffmpegHasFullFile = false;
+            document.getElementById('selected-name').textContent = file.name;
+            document.getElementById('options-panel').style.display = 'flex';
+            tracks = [];
+            activeTrackIndex = null;
+            renderTrackPanel();
+
+            // まず動画を再生開始
+            const videoUrl = URL.createObjectURL(file);
+            initPlayer(videoUrl, []);
+            setStatus('動画を読み込みました。');
+
+            // ffmpeg.wasm が使えれば字幕を自動検出
+            if (!FFmpeg) {
+                setStatus('字幕の自動抽出には HTTPS / localhost が必要です。', 'warn');
+                return;
+            }
+
+            try {
+                if (!ffmpeg) {
+                    setProgress('ffmpeg.wasm を CDN からダウンロード中… (初回のみ・数十秒かかります)', 0);
+                    ffmpeg = new FFmpeg();
+                    ffmpeg.on('progress', ({ progress }) => {
+                        setProgress('字幕を抽出中...', Math.round(progress * 100));
+                    });
+                    // ダウンロード進捗をログで受け取る
+                    ffmpeg.on('log', ({ message }) => {
+                        if (message.includes('wasm')) {
+                            setProgress('ffmpeg-core.wasm をロード中…', 0);
+                        }
+                    });
+                    await ffmpeg.load({
+                        coreURL: '/ffmpeg-core.js',
+                        wasmURL: '/ffmpeg-core.wasm',
+                    });
+                }
+
+                // トラック検出は先頭 5MB だけ読めば十分
+                const DETECT_BYTES = 5 * 1024 * 1024;
+                setProgress('字幕トラックを検出中...', 0);
+                const headerSlice = file.slice(0, Math.min(file.size, DETECT_BYTES));
+                await ffmpeg.writeFile('input', new Uint8Array(await headerSlice.arrayBuffer()));
+
+                tracks = await detectSubtitleTracks();
+                setProgress(null);
+
+                if (tracks.length === 0) {
+                    setStatus('字幕トラックが見つかりませんでした。', 'warn');
+                    return;
+                }
+
+                renderTrackPanel();
+                setStatus(`字幕トラックが ${tracks.length} 件見つかりました。トラックを選んでください。`);
+
+                // 字幕が1つだけなら自動適用
+                if (tracks.length === 1) {
+                    activeTrackIndex = 0;
+                    renderTrackPanel();
+                    await extractAndApply(tracks[0]);
+                }
+            } catch (e) {
+                setProgress(null);
+                setStatus(`字幕検出エラー: ${e.message}`, 'err');
+                console.error(e);
+            }
+        }
+
+        async function detectSubtitleTracks() {
+            const logs = [];
+            const handler = ({ message }) => logs.push(message);
+            ffmpeg.on('log', handler);
+            try { await ffmpeg.exec(['-i', 'input', '-f', 'null', '-']); } catch {}
+            ffmpeg.off('log', handler);
+
+            let subIndex = 0;
+            return logs.flatMap((line) => {
+                const m = line.match(/Stream #0:(\d+)(?:\((\w+)\))?[^:]*:\s*Subtitle:\s*(\w+)/i);
+                if (!m) return [];
+                return [{ index: subIndex++, streamIndex: +m[1], lang: m[2]??null, codec: m[3].toLowerCase() }];
+            });
+        }
+
+        async function extractAndApply(track) {
+            try {
+                // フルファイルを ffmpeg に書き込む（必要なのは初回のみ）
+                if (!ffmpegHasFullFile) {
+                    const sizeMB = (currentFile.size / 1024 / 1024).toFixed(0);
+                    setProgress(`動画ファイルを読み込み中... (${sizeMB} MB)`, 0);
+                    await ffmpeg.writeFile('input', new Uint8Array(await currentFile.arrayBuffer()));
+                    ffmpegHasFullFile = true;
+                }
+
+                setProgress(`字幕トラック ${track.index + 1} を抽出中...`, 0);
+                const outFile = 'out.srt';
+                await ffmpeg.exec(['-i','input','-map',`0:${track.streamIndex}`,'-c:s','srt', outFile]);
+                const data = await ffmpeg.readFile(outFile);
+                await ffmpeg.deleteFile(outFile);
+
+                const text = new TextDecoder().decode(data);
+                const { color, type } = getDanOptions();
+                applyDanmaku(parseSRT(text, color, type));
+            } catch (e) {
+                setStatus(`抽出エラー: ${e.message}`, 'err');
+            } finally {
+                setProgress(null);
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // イベント: クリックでファイル選択
+        // -----------------------------------------------------------------------
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('video-file');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) onVideoSelected(file);
+        });
+
+        // ドラッグ＆ドロップ
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault(); dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault(); dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) onVideoSelected(file);
+        });
+
+        // 弾幕設定が変わったら再適用
+        document.getElementById('dan-type').addEventListener('change', () => {
+            if (activeTrackIndex !== null && tracks[activeTrackIndex]) {
+                extractAndApply(tracks[activeTrackIndex]);
+            }
+        });
+        document.getElementById('dan-color').addEventListener('change', () => {
+            if (activeTrackIndex !== null && tracks[activeTrackIndex]) {
+                extractAndApply(tracks[activeTrackIndex]);
+            }
+        });
+
+        // -----------------------------------------------------------------------
+        // Electron: コマンドライン / ファイル関連付けからのファイルオープン
+        // -----------------------------------------------------------------------
+        if (window.electronAPI) {
+            window.electronAPI.onOpenFile(async (filePath) => {
+                const name = filePath.replace(/\\/g, '/').split('/').pop();
+                const ext  = name.split('.').pop().toLowerCase();
+                const mimeMap = {
+                    mp4: 'video/mp4', mkv: 'video/x-matroska', avi: 'video/x-msvideo',
+                    mov: 'video/quicktime', wmv: 'video/x-ms-wmv',
+                    ts: 'video/mp2t', m2ts: 'video/mp2t',
+                };
+                const type = mimeMap[ext] || 'video/mp4';
+
+                // 状態リセット
+                ffmpegHasFullFile = false;
+                document.getElementById('selected-name').textContent = name;
+                document.getElementById('options-panel').style.display = 'flex';
+                tracks = [];
+                activeTrackIndex = null;
+                renderTrackPanel();
+
+                // File-likeオブジェクト（遅延読み込み）
+                // - 動画再生はストリーミングURLで行うため全体は読まない
+                // - ffmpegが必要なときだけIPCで読み込む
+                const fileSize = await window.electronAPI.statFile(filePath).catch(() => 0);
+                currentFile = {
+                    name, type, size: fileSize,
+                    // ffmpeg のフルファイル書き込み用
+                    arrayBuffer: async () => {
+                        const buf = await window.electronAPI.readFile(filePath);
+                        return buf.buffer ?? buf;
+                    },
+                    // ffmpeg の先頭スライス検出用（range requestで取得）
+                    slice: (start, end) => ({
+                        arrayBuffer: async () => {
+                            const url = `${window.location.origin}/media?path=${encodeURIComponent(filePath)}`;
+                            const resp = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` } });
+                            return resp.arrayBuffer();
+                        },
+                    }),
+                };
+
+                // 動画をストリーミングURLで再生（RAMを使わない）
+                const videoUrl = `${window.location.origin}/media?path=${encodeURIComponent(filePath)}`;
+                initPlayer(videoUrl, []);
+                setStatus('動画を読み込みました。');
+
+                // ffmpeg.wasm で字幕を自動検出
+                if (!FFmpeg) {
+                    setStatus('字幕の自動抽出には HTTPS / localhost が必要です。', 'warn');
+                    return;
+                }
+
+                try {
+                    if (!ffmpeg) {
+                        setProgress('ffmpeg.wasm を CDN からダウンロード中… (初回のみ・数十秒かかります)', 0);
+                        ffmpeg = new FFmpeg();
+                        ffmpeg.on('progress', ({ progress }) => {
+                            setProgress('字幕を抽出中...', Math.round(progress * 100));
+                        });
+                        ffmpeg.on('log', ({ message }) => {
+                            if (message.includes('wasm')) setProgress('ffmpeg-core.wasm をロード中…', 0);
+                        });
+                        await ffmpeg.load({ coreURL: '/ffmpeg-core.js', wasmURL: '/ffmpeg-core.wasm' });
+                    }
+
+                    const DETECT_BYTES = 5 * 1024 * 1024;
+                    setProgress('字幕トラックを検出中...', 0);
+                    const sliceData = new Uint8Array(await currentFile.slice(0, DETECT_BYTES).arrayBuffer());
+                    await ffmpeg.writeFile('input', sliceData);
+
+                    tracks = await detectSubtitleTracks();
+                    setProgress(null);
+
+                    if (tracks.length === 0) {
+                        setStatus('字幕トラックが見つかりませんでした。', 'warn');
+                        return;
+                    }
+
+                    renderTrackPanel();
+                    setStatus(`字幕トラックが ${tracks.length} 件見つかりました。トラックを選んでください。`);
+
+                    if (tracks.length === 1) {
+                        activeTrackIndex = 0;
+                        renderTrackPanel();
+                        await extractAndApply(tracks[0]);
+                    }
+                } catch (e) {
+                    setProgress(null);
+                    setStatus(`字幕検出エラー: ${e.message}`, 'err');
+                    console.error(e);
+                }
+            });
+        }
+    </script>
+</body>
+</html>

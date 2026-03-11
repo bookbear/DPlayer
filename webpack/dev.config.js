@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const webpack = require('webpack');
 const { GitRevisionPlugin } = require('git-revision-webpack-plugin');
 const gitRevisionPlugin = new GitRevisionPlugin();
@@ -44,17 +45,42 @@ module.exports = {
 
     // webpack-dev-server settings
     devServer: {
+        host: '0.0.0.0',
         compress: true,
         open: true,
+        // HTTPS (SharedArrayBuffer は secure context が必要)
+        server: {
+            type: 'https',
+            options: {
+                key:  fs.readFileSync(path.resolve(__dirname, 'dev-key.pem')),
+                cert: fs.readFileSync(path.resolve(__dirname, 'dev-cert.pem')),
+            },
+        },
         historyApiFallback: {
             disableDotRule: true,
         },
-        static: {
-            directory: path.resolve(__dirname, '..', 'demo'),
-            watch: {
-                ignored: /node_modules/,
+        static: [
+            {
+                directory: path.resolve(__dirname, '..', 'demo'),
+                watch: { ignored: /node_modules/ },
             },
-        }
+            // @ffmpeg/ffmpeg ESM を same-origin で配信 (Worker の COEP 対応)
+            {
+                directory: path.resolve(__dirname, '..', 'node_modules', '@ffmpeg', 'ffmpeg', 'dist', 'esm'),
+                publicPath: '/ffmpeg',
+                watch: false,
+            },
+            {
+                directory: path.resolve(__dirname, '..', 'node_modules', '@ffmpeg', 'util', 'dist', 'esm'),
+                publicPath: '/ffmpeg-util',
+                watch: false,
+            },
+        ],
+        // ffmpeg.wasm (SharedArrayBuffer) に必要な COOP/COEP ヘッダー
+        headers: {
+            'Cross-Origin-Opener-Policy': 'same-origin',
+            'Cross-Origin-Embedder-Policy': 'credentialless',
+        },
     },
 
     // resolve modules

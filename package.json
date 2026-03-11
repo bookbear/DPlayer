@@ -2,7 +2,10 @@
     "name": "dplayer",
     "version": "1.32.7",
     "description": "Wow, such a lovely HTML5 danmaku video player",
-    "main": "dist/DPlayer.min.js",
+    "main": "electron/main.js",
+    "exports": {
+        ".": "./dist/DPlayer.min.js"
+    },
     "types": "dist/d.ts/index.d.ts",
     "files": [
         "dist"
@@ -27,7 +30,7 @@
         "url": "git+https://github.com/tsukumijima/DPlayer.git"
     },
     "scripts": {
-        "prepare": "patch-package",
+        "prepare": "patch-package && node scripts/copy-ffmpeg-core.js",
         "start": "npm run dev",
         "build": "cross-env NODE_ENV=production webpack build --config webpack/prod.config.js --progress",
         "dev": "cross-env NODE_ENV=development webpack serve --config webpack/dev.config.js",
@@ -36,7 +39,9 @@
         "format": "eslint \"**/*.ts\" --fix",
         "format:check": "eslint \"**/*.ts\"",
         "docs:dev": "vuepress dev docs",
-        "docs:build": "vuepress build docs"
+        "docs:build": "vuepress build docs",
+        "electron:start": "npm run build && electron .",
+        "electron:build": "npm run build && electron-builder --win"
     },
     "dependencies": {
         "aribb24.js": "~1.11.5",
@@ -46,6 +51,9 @@
     "devDependencies": {
         "@babel/core": "^7.24.9",
         "@babel/preset-env": "^7.24.8",
+        "@ffmpeg/core": "^0.12.10",
+        "@ffmpeg/ffmpeg": "^0.12.15",
+        "@ffmpeg/util": "^0.12.2",
         "@types/bittorrent-protocol": "3.1.6",
         "@types/node": "^18",
         "@types/parse-torrent": "5.8.7",
@@ -64,6 +72,8 @@
         "css-loader": "^6.11.0",
         "cssnano": "^5.1.15",
         "dashjs": "^5.0.3",
+        "electron": "^41.0.0",
+        "electron-builder": "^26.8.1",
         "eslint": "^8.57.0",
         "flv.js": "^1.6.2",
         "git-revision-webpack-plugin": "^5.0.0",
@@ -88,6 +98,44 @@
         "webpack-cli": "^5.1.4",
         "webpack-dev-server": "^5.2.1",
         "yorkie": "^2.0.0"
+    },
+    "build": {
+        "appId": "com.tsukumijima.dplayer-local",
+        "productName": "DPlayer",
+        "directories": {
+            "output": "release"
+        },
+        "files": [
+            "electron/**",
+            "dist/DPlayer.min.js",
+            "demo/local-player.html",
+            "demo/ffmpeg-core.js",
+            "demo/ffmpeg-core.wasm",
+            "node_modules/@ffmpeg/ffmpeg/dist/esm/**",
+            "node_modules/@ffmpeg/util/dist/esm/**"
+        ],
+        "win": {
+            "target": "nsis"
+        },
+        "fileAssociations": [
+            {
+                "ext": [
+                    "mp4",
+                    "mkv",
+                    "avi",
+                    "ts",
+                    "m2ts",
+                    "wmv",
+                    "mov"
+                ],
+                "name": "Video File",
+                "role": "Viewer"
+            }
+        ],
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true
+        }
     },
     "gitHooks": {
         "pre-commit": "npm run format"
