@@ -30,6 +30,11 @@
         margin: 0;
         padding: 0;
         transform: translate(0, 0);
+
+        // フルスクリーン時は弾幕を画面全体に流す
+        .dplayer-danmaku {
+            aspect-ratio: unset;
+        }
     }
 
     &.dplayer-no-danmaku {

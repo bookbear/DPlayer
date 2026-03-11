@@ -231,7 +231,8 @@ class Danmaku {
             // adjust the font size according to the screen size
             const ratioRate = 1.25; // magic!
             let ratio = this.container.offsetWidth / 1024 * ratioRate;
-            if (ratio >= 1) ratio = 1; // ratio should not exceed 1
+            const isFullScreen = this.player.fullScreen.isFullScreen('browser') || this.player.fullScreen.isFullScreen('web');
+            if (!isFullScreen && ratio >= 1) ratio = 1; // ratio should not exceed 1 (except in fullscreen)
             let itemFontSize = this.options.fontSize * ratio;
             const itemHeight = itemFontSize + (6 * ratio); // 6 is the vertical margin of danmaku
 
@@ -474,11 +475,13 @@ class Danmaku {
     }
 
     resize(): void {
-        const danWidth = this.container.offsetWidth;
-        const items = this.container.querySelectorAll<HTMLElement>('.dplayer-danmaku-item');
-        for (let i = 0; i < items.length; i++) {
-            items[i].style.transform = `translateX(-${danWidth}px)`;
-        }
+        // フォントサイズが変わるためトンネル情報と表示中のコメントをリセット
+        this.danTunnel = {
+            right: {},
+            top: {},
+            bottom: {},
+        };
+        this.options.container.innerHTML = '';
     }
 
     hide(): void {
