@@ -1,6 +1,10 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, session } = require('electron');
+
+// SharedArrayBuffer を有効にするため Chromium フラグを設定
+// (COOP/COEP ヘッダーだけでは Electron 上で不十分な場合がある)
+app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -190,7 +194,20 @@ if (!gotLock) {
         if (mainWindow) mainWindow.webContents.send('open-file', filePath);
     });
 
-    app.whenReady().then(createWindow);
+    app.whenReady().then(() => {
+        // HTTP サーバーのヘッダーに加え、Electron の session 側でも
+        // COOP/COEP を注入して crossOriginIsolated を確実に有効化する
+        session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+            callback({
+                responseHeaders: {
+                    ...details.responseHeaders,
+                    'Cross-Origin-Opener-Policy': ['same-origin'],
+                    'Cross-Origin-Embedder-Policy': ['credentialless'],
+                },
+            });
+        });
+        createWindow();
+    });
 
     app.on('window-all-closed', () => {
         if (process.platform !== 'darwin') app.quit();
