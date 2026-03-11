@@ -172,5 +172,11 @@ module.exports = {
             DPLAYER_VERSION: `"${require('../package.json').version}"`,
             GIT_HASH: JSON.stringify(gitRevisionPlugin.version()),
         }),
+        // art-template-loader が Windows 上でバックスラッシュのパスを生成するため
+        // webpack がモジュール名として誤解釈する問題を修正
+        new webpack.NormalModuleReplacementPlugin(
+            /[/\\]art-template[/\\]lib[/\\]runtime/,
+            require.resolve('art-template/lib/runtime'),
+        ),
     ],
 };
