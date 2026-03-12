@@ -150,76 +150,60 @@ function handleAppRequest(request) {
 ipcMain.handle('stat-file', (_, filePath) => fs.statSync(filePath).size);
 
 // -----------------------------------------------------------------------
-// Main-process ffmpeg (NODEFS マウントで大容量ファイルもメモリに載せずに処理)
+// Native ffmpeg (child_process.spawn) で大容量ファイルの字幕を処理
 // -----------------------------------------------------------------------
-let _ffmpegMain = null;
+const { spawn } = require('child_process');
+const os = require('os');
 
-async function ensureMainFFmpeg() {
-    if (_ffmpegMain) return _ffmpegMain;
-    const { pathToFileURL } = require('url');
-    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-    const ff = new FFmpeg();
-    await ff.load({
-        coreURL: pathToFileURL(path.join(ROOT, 'demo/ffmpeg-core.js')).href,
-        wasmURL: pathToFileURL(path.join(ROOT, 'demo/ffmpeg-core.wasm')).href,
-    });
-    _ffmpegMain = ff;
-    return ff;
+// ffmpeg のパス解決: 環境変数 FFMPEG_PATH > アプリ同梱 > PATH
+function getFFmpegPath() {
+    if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
+        return process.env.FFMPEG_PATH;
+    }
+    // アプリと同じディレクトリに ffmpeg.exe / ffmpeg を置いた場合
+    const bundled = path.join(ROOT, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+    if (fs.existsSync(bundled)) return bundled;
+    // PATH 上の ffmpeg
+    return 'ffmpeg';
 }
 
-async function withNODEFS(filePath, fn) {
-    const ff = await ensureMainFFmpeg();
-    const dir = path.dirname(filePath);
-    const basename = path.basename(filePath);
-    // 前回の残骸をクリーンアップ
-    try { await ff.unmount('/input_dir'); } catch {}
-    try { await ff.deleteDir('/input_dir'); } catch {}
-    await ff.createDir('/input_dir');
-    await ff.mount('NODEFS', { root: dir }, '/input_dir');
-    try {
-        return await fn(ff, `/input_dir/${basename}`);
-    } finally {
-        await ff.unmount('/input_dir').catch(() => {});
-        await ff.deleteDir('/input_dir').catch(() => {});
-    }
+function spawnFFmpeg(args) {
+    return new Promise((resolve, reject) => {
+        const proc = spawn(getFFmpegPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        const stderr = [];
+        proc.stderr.on('data', (d) => stderr.push(d.toString()));
+        proc.stdout.on('data', () => {});
+        proc.on('close', (code) => resolve({ code, stderr: stderr.join('') }));
+        proc.on('error', (e) => reject(
+            new Error(`ffmpeg が見つかりません。ffmpeg を PATH に追加するか、${ROOT} に ffmpeg.exe を置いてください。\n(${e.message})`),
+        ));
+    });
 }
 
 ipcMain.handle('detect-subtitles', async (_, filePath) => {
-    try {
-        return await withNODEFS(filePath, async (ff, inputPath) => {
-            const logs = [];
-            const h = ({ message }) => logs.push(message);
-            ff.on('log', h);
-            try { await ff.exec(['-i', inputPath, '-f', 'null', '-']); } catch {}
-            ff.off('log', h);
-            let i = 0;
-            return logs.flatMap((line) => {
-                const m = line.match(/Stream #0:(\d+)(?:\((\w+)\))?[^:]*:\s*Subtitle:\s*(\w+)/i);
-                return m ? [{ index: i++, streamIndex: +m[1], lang: m[2] ?? null, codec: m[3].toLowerCase() }] : [];
-            });
-        });
-    } catch (e) {
-        _ffmpegMain = null;
-        throw e;
-    }
+    const { stderr } = await spawnFFmpeg(['-i', filePath, '-f', 'null', '-']);
+    let i = 0;
+    return stderr.split('\n').flatMap((line) => {
+        const m = line.match(/Stream #0:(\d+)(?:\((\w+)\))?[^:]*:\s*Subtitle:\s*(\w+)/i);
+        return m ? [{ index: i++, streamIndex: +m[1], lang: m[2] ?? null, codec: m[3].toLowerCase() }] : [];
+    });
 });
 
 ipcMain.handle('extract-subtitle', async (_, { filePath, streamIndex, codec }) => {
+    const isAss = codec === 'ass' || codec === 'ssa';
+    const outFile = path.join(os.tmpdir(), `dplayer_sub_${Date.now()}.${isAss ? 'ass' : 'srt'}`);
+    const args = isAss
+        ? ['-y', '-i', filePath, '-map', `0:${streamIndex}`, '-c:s', 'copy', outFile]
+        : ['-y', '-i', filePath, '-map', `0:${streamIndex}`, '-c:s', 'srt', outFile];
+    const { code, stderr } = await spawnFFmpeg(args);
     try {
-        return await withNODEFS(filePath, async (ff, inputPath) => {
-            const isAss = codec === 'ass' || codec === 'ssa';
-            const outName = isAss ? 'out.ass' : 'out.srt';
-            const args = isAss
-                ? ['-i', inputPath, '-map', `0:${streamIndex}`, '-c:s', 'copy', outName]
-                : ['-i', inputPath, '-map', `0:${streamIndex}`, '-c:s', 'srt', outName];
-            await ff.exec(args);
-            const data = await ff.readFile(outName);
-            await ff.deleteFile(outName).catch(() => {});
-            return { text: Buffer.from(data).toString('utf8'), filename: outName };
-        });
-    } catch (e) {
-        _ffmpegMain = null;
-        throw e;
+        if (code !== 0 || !fs.existsSync(outFile)) {
+            throw new Error(`ffmpeg が終了コード ${code} で失敗しました`);
+        }
+        const text = fs.readFileSync(outFile, 'utf8');
+        return { text, filename: path.basename(outFile) };
+    } finally {
+        try { fs.unlinkSync(outFile); } catch {}
     }
 });
 
