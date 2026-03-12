@@ -193,6 +193,24 @@
         }
 
         // -----------------------------------------------------------------------
+        // ファイル読み込みヘルパー
+        // -----------------------------------------------------------------------
+        // File.arrayBuffer() は大きなファイルで Electron のサンドボックス内で失敗することがあるため
+        // 実 Blob/File は FileReader を使用する
+        function readAsArrayBuffer(fileOrBlob) {
+            if (fileOrBlob instanceof Blob) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(new Error(reader.error?.message || 'ファイルの読み込みに失敗しました'));
+                    reader.readAsArrayBuffer(fileOrBlob);
+                });
+            }
+            // カスタムオブジェクト (Electron IPC 経由) の場合はそのまま呼ぶ
+            return fileOrBlob.arrayBuffer();
+        }
+
+        // -----------------------------------------------------------------------
         // 字幕パーサー
         // -----------------------------------------------------------------------
         function parseSRTTime(s) {
@@ -424,7 +442,7 @@
                 const DETECT_BYTES = 5 * 1024 * 1024;
                 setProgress('字幕トラックを検出中...', 0);
                 const headerSlice = file.slice(0, Math.min(file.size, DETECT_BYTES));
-                await ffmpeg.writeFile('input', new Uint8Array(await headerSlice.arrayBuffer()));
+                await ffmpeg.writeFile('input', new Uint8Array(await readAsArrayBuffer(headerSlice)));
 
                 tracks = await detectSubtitleTracks();
                 setProgress(null);
@@ -471,7 +489,7 @@
                 if (!ffmpegHasFullFile) {
                     const sizeMB = (currentFile.size / 1024 / 1024).toFixed(0);
                     setProgress(`動画ファイルを読み込み中... (${sizeMB} MB)`, 0);
-                    await ffmpeg.writeFile('input', new Uint8Array(await currentFile.arrayBuffer()));
+                    await ffmpeg.writeFile('input', new Uint8Array(await readAsArrayBuffer(currentFile)));
                     ffmpegHasFullFile = true;
                 }
 
