@@ -1,5 +1,4 @@
 const path = require('path');
-const fs = require('fs');
 const webpack = require('webpack');
 const { GitRevisionPlugin } = require('git-revision-webpack-plugin');
 const gitRevisionPlugin = new GitRevisionPlugin();
@@ -48,14 +47,7 @@ module.exports = {
         host: '0.0.0.0',
         compress: true,
         open: true,
-        // HTTPS (SharedArrayBuffer は secure context が必要)
-        server: {
-            type: 'https',
-            options: {
-                key:  fs.readFileSync(path.resolve(__dirname, 'dev-key.pem')),
-                cert: fs.readFileSync(path.resolve(__dirname, 'dev-cert.pem')),
-            },
-        },
+        // localhost の HTTP でも COOP/COEP ヘッダーがあれば SharedArrayBuffer は使用可能
         historyApiFallback: {
             disableDotRule: true,
         },
