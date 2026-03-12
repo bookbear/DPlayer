@@ -10,10 +10,6 @@ docs/.vuepress/dist
 dist/src/*
 pre[^l]*
 .node-version
-# ffmpeg.wasm 関連 (scripts/copy-ffmpeg-core.js でコピーされる)
-demo/ffmpeg-core.js
-demo/ffmpeg-core.wasm
-demo/vendor/
 # 開発用自己署名証明書
 webpack/dev-cert.pem
 webpack/dev-key.pem

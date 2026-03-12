@@ -30,7 +30,7 @@
         "url": "git+https://github.com/tsukumijima/DPlayer.git"
     },
     "scripts": {
-        "prepare": "patch-package && node scripts/copy-ffmpeg-core.js",
+        "prepare": "patch-package",
         "start": "npm run dev",
         "build": "cross-env NODE_ENV=production webpack build --config webpack/prod.config.js --progress",
         "dev": "cross-env NODE_ENV=development webpack serve --config webpack/dev.config.js",
@@ -41,7 +41,7 @@
         "docs:dev": "vuepress dev docs",
         "docs:build": "vuepress build docs",
         "electron:start": "npm run build && electron .",
-        "electron:build": "npm run build && node scripts/copy-ffmpeg-core.js && electron-builder --win"
+        "electron:build": "npm run build && electron-builder --win"
     },
     "dependencies": {
         "aribb24.js": "~1.11.5",
@@ -51,9 +51,6 @@
     "devDependencies": {
         "@babel/core": "^7.24.9",
         "@babel/preset-env": "^7.24.8",
-        "@ffmpeg/core": "^0.12.10",
-        "@ffmpeg/ffmpeg": "^0.12.15",
-        "@ffmpeg/util": "^0.12.2",
         "@types/bittorrent-protocol": "3.1.6",
         "@types/node": "^18",
         "@types/parse-torrent": "5.8.7",
@@ -109,10 +106,7 @@
         "files": [
             "electron/**",
             "dist/DPlayer.min.js",
-            "demo/local-player.html",
-            "demo/ffmpeg-core.js",
-            "demo/ffmpeg-core.wasm",
-            "demo/vendor/**"
+            "demo/local-player.html"
         ],
         "win": {
             "target": "zip"

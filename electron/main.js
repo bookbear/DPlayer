@@ -29,16 +29,9 @@ const ROOT = app.isPackaged
 // Route mapping
 // -----------------------------------------------------------------------
 const ROUTES = {
-    '/':                 { file: path.join(ROOT, 'demo/local-player.html'),  mime: 'text/html' },
-    '/DPlayer.js':       { file: path.join(ROOT, 'dist/DPlayer.min.js'),     mime: 'application/javascript' },
-    '/ffmpeg-core.js':   { file: path.join(ROOT, 'demo/ffmpeg-core.js'),     mime: 'application/javascript' },
-    '/ffmpeg-core.wasm': { file: path.join(ROOT, 'demo/ffmpeg-core.wasm'),   mime: 'application/wasm' },
+    '/':           { file: path.join(ROOT, 'demo/local-player.html'), mime: 'text/html' },
+    '/DPlayer.js': { file: path.join(ROOT, 'dist/DPlayer.min.js'),    mime: 'application/javascript' },
 };
-
-const STATIC_DIRS = [
-    { prefix: '/ffmpeg/',      dir: path.join(ROOT, 'demo/vendor/ffmpeg') },
-    { prefix: '/ffmpeg-util/', dir: path.join(ROOT, 'demo/vendor/ffmpeg-util') },
-];
 
 const MIME_EXT = { '.js': 'application/javascript', '.wasm': 'application/wasm', '.html': 'text/html' };
 
@@ -122,22 +115,6 @@ function handleAppRequest(request) {
             });
         } catch {
             return new Response('Not found', { status: 404, headers: COOP_HEADERS });
-        }
-    }
-
-    // 静的ディレクトリ（ffmpeg ESM モジュール）
-    for (const { prefix, dir } of STATIC_DIRS) {
-        if (urlPath.startsWith(prefix)) {
-            const file = path.join(dir, urlPath.slice(prefix.length));
-            const mime = MIME_EXT[path.extname(file)] || 'application/octet-stream';
-            try {
-                return new Response(readCached(file), {
-                    status: 200,
-                    headers: { 'Content-Type': mime, ...COOP_HEADERS },
-                });
-            } catch {
-                return new Response('Not found', { status: 404, headers: COOP_HEADERS });
-            }
         }
     }
 

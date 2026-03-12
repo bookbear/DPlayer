@@ -56,23 +56,7 @@ module.exports = {
                 directory: path.resolve(__dirname, '..', 'demo'),
                 watch: { ignored: /node_modules/ },
             },
-            // @ffmpeg/ffmpeg ESM を same-origin で配信 (Worker の COEP 対応)
-            {
-                directory: path.resolve(__dirname, '..', 'node_modules', '@ffmpeg', 'ffmpeg', 'dist', 'esm'),
-                publicPath: '/ffmpeg',
-                watch: false,
-            },
-            {
-                directory: path.resolve(__dirname, '..', 'node_modules', '@ffmpeg', 'util', 'dist', 'esm'),
-                publicPath: '/ffmpeg-util',
-                watch: false,
-            },
         ],
-        // ffmpeg.wasm (SharedArrayBuffer) に必要な COOP/COEP ヘッダー
-        headers: {
-            'Cross-Origin-Opener-Policy': 'same-origin',
-            'Cross-Origin-Embedder-Policy': 'credentialless',
-        },
     },
 
     // resolve modules
