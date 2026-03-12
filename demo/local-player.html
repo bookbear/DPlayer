@@ -180,18 +180,16 @@
         // -----------------------------------------------------------------------
         let FFmpeg = null, fetchFile = null, ffmpeg = null;
         let _ffmpegInitError = null;
-        const canUseSAB = typeof SharedArrayBuffer !== 'undefined';
 
-        if (canUseSAB) {
-            try {
-                const fm = await import('/ffmpeg/index.js');
-                const fu = await import('/ffmpeg-util/index.js');
-                FFmpeg = fm.FFmpeg;
-                fetchFile = fu.fetchFile;
-            } catch (e) {
-                _ffmpegInitError = e;
-                console.error('ffmpeg import failed:', e);
-            }
+        // @ffmpeg/core はシングルスレッド版のため SharedArrayBuffer 不要
+        try {
+            const fm = await import('/ffmpeg/index.js');
+            const fu = await import('/ffmpeg-util/index.js');
+            FFmpeg = fm.FFmpeg;
+            fetchFile = fu.fetchFile;
+        } catch (e) {
+            _ffmpegInitError = e;
+            console.error('ffmpeg import failed:', e);
         }
 
         // -----------------------------------------------------------------------
@@ -395,12 +393,10 @@
 
             // ffmpeg.wasm が使えれば字幕を自動検出
             if (!FFmpeg) {
-                if (!canUseSAB) {
-                    setStatus(`SharedArrayBuffer が使用不可 (crossOriginIsolated: ${window.crossOriginIsolated})`, 'err');
-                } else if (_ffmpegInitError) {
+                if (_ffmpegInitError) {
                     setStatus(`ffmpeg モジュール読み込みエラー: ${_ffmpegInitError.message}`, 'err');
                 } else {
-                    setStatus('字幕の自動抽出には HTTPS / localhost が必要です。', 'warn');
+                    setStatus('ffmpeg の読み込みに失敗しました。', 'err');
                 }
                 return;
             }
@@ -581,12 +577,10 @@
 
                 // ffmpeg.wasm で字幕を自動検出
                 if (!FFmpeg) {
-                    if (!canUseSAB) {
-                    setStatus(`SharedArrayBuffer が使用不可 (crossOriginIsolated: ${window.crossOriginIsolated})`, 'err');
-                } else if (_ffmpegInitError) {
+                    if (_ffmpegInitError) {
                     setStatus(`ffmpeg モジュール読み込みエラー: ${_ffmpegInitError.message}`, 'err');
                 } else {
-                    setStatus('字幕の自動抽出には HTTPS / localhost が必要です。', 'warn');
+                    setStatus('ffmpeg の読み込みに失敗しました。', 'err');
                 }
                     return;
                 }

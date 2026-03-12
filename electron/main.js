@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, protocol, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -173,6 +173,11 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
     mainWindow.loadURL('app://localhost/');
 
+    // F12 で DevTools を開閉
+    mainWindow.webContents.on('before-input-event', (_, input) => {
+        if (input.key === 'F12') mainWindow.webContents.toggleDevTools();
+    });
+
     mainWindow.webContents.once('did-finish-load', () => {
         const filePath = getFileArg(process.argv);
         if (filePath) mainWindow.webContents.send('open-file', filePath);
@@ -211,9 +216,6 @@ if (!gotLock) {
     app.whenReady().then(() => {
         protocol.handle('app', handleAppRequest);
         createWindow();
-        globalShortcut.register('F12', () => {
-            if (mainWindow) mainWindow.webContents.toggleDevTools();
-        });
     });
 
     app.on('window-all-closed', () => {
