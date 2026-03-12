@@ -301,6 +301,7 @@
         // -----------------------------------------------------------------------
         let dp = null, currentVideoUrl = null;
         let currentFile = null, ffmpegHasFullFile = false;
+        let _electronFilePath = null;  // Electron環境での現在のファイルパス
 
         function initPlayer(videoUrl, danmakuData) {
             if (dp) { dp.destroy(); dp = null; }
@@ -408,6 +409,7 @@
                 } catch (_) { /* パス取得失敗時はフォールスルー */ }
             }
 
+            _electronFilePath = null;
             currentFile = file;
             ffmpegHasFullFile = false;
             document.getElementById('selected-name').textContent = file.name;
@@ -497,7 +499,21 @@
 
         async function extractAndApply(track) {
             try {
-                // フルファイルを ffmpeg に書き込む（必要なのは初回のみ）
+                setProgress(`字幕トラック ${track.index + 1} を抽出中...`, 0);
+                const { color, type } = getDanOptions();
+
+                // Electron: メインプロセスの ffmpeg (NODEFS) を使用（ファイルサイズ制限なし）
+                if (_electronFilePath && window.electronAPI?.extractSubtitle) {
+                    const { text, filename } = await window.electronAPI.extractSubtitle({
+                        filePath: _electronFilePath,
+                        streamIndex: track.streamIndex,
+                        codec: track.codec,
+                    });
+                    applyDanmaku(parseSubtitleText(text, filename, color, type));
+                    return;
+                }
+
+                // ブラウザ: レンダラーの ffmpeg.wasm を使用
                 if (!ffmpegHasFullFile) {
                     const sizeMB = (currentFile.size / 1024 / 1024).toFixed(0);
                     setProgress(`動画ファイルを読み込み中... (${sizeMB} MB)`, 0);
@@ -505,24 +521,16 @@
                     ffmpegHasFullFile = true;
                 }
 
-                setProgress(`字幕トラック ${track.index + 1} を抽出中...`, 0);
-                const { color, type } = getDanOptions();
-
-                // ASS/SSA はそのまま抽出、それ以外は SRT に変換
                 const isAss = track.codec === 'ass' || track.codec === 'ssa';
                 const outFile = isAss ? 'out.ass' : 'out.srt';
-
                 if (isAss) {
                     await ffmpeg.exec(['-i','input','-map',`0:${track.streamIndex}`,'-c:s','copy', outFile]);
                 } else {
                     await ffmpeg.exec(['-i','input','-map',`0:${track.streamIndex}`,'-c:s','srt', outFile]);
                 }
-
                 const data = await ffmpeg.readFile(outFile);
                 await ffmpeg.deleteFile(outFile);
-
-                const text = new TextDecoder().decode(data);
-                applyDanmaku(parseSubtitleText(text, outFile, color, type));
+                applyDanmaku(parseSubtitleText(new TextDecoder().decode(data), outFile, color, type));
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 setStatus(`抽出エラー: ${msg || '不明なエラー'}`, 'err');
@@ -572,6 +580,7 @@
         // Electron: ファイルパスから動画を開く共通処理
         // -----------------------------------------------------------------------
         async function onElectronFileOpen(filePath) {
+            _electronFilePath = filePath;
             const name = filePath.replace(/\\/g, '/').split('/').pop();
             const ext  = name.split('.').pop().toLowerCase();
             const mimeMap = {
@@ -611,28 +620,9 @@
             initPlayer(videoUrl, []);
             setStatus('動画を読み込みました。');
 
-            if (!FFmpeg) {
-                setStatus(_ffmpegInitError
-                    ? `ffmpeg モジュール読み込みエラー: ${_ffmpegInitError.message}`
-                    : 'ffmpeg の読み込みに失敗しました。', 'err');
-                return;
-            }
-
             try {
-                if (!ffmpeg) {
-                    setProgress('ffmpeg.wasm を読み込み中...', 0);
-                    ffmpeg = new FFmpeg();
-                    ffmpeg.on('progress', ({ progress }) => {
-                        setProgress('字幕を抽出中...', Math.round(progress * 100));
-                    });
-                    await ffmpeg.load({ coreURL: '/ffmpeg-core.js', wasmURL: '/ffmpeg-core.wasm' });
-                }
-
-                const DETECT_BYTES = 5 * 1024 * 1024;
                 setProgress('字幕トラックを検出中...', 0);
-                await ffmpeg.writeFile('input', new Uint8Array(await currentFile.slice(0, DETECT_BYTES).arrayBuffer()));
-
-                tracks = await detectSubtitleTracks();
+                tracks = await window.electronAPI.detectSubtitles(filePath);
                 setProgress(null);
 
                 if (tracks.length === 0) {

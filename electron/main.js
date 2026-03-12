@@ -147,8 +147,81 @@ function handleAppRequest(request) {
 // -----------------------------------------------------------------------
 // IPC handlers
 // -----------------------------------------------------------------------
-ipcMain.handle('read-file', (_, filePath) => fs.readFileSync(filePath));
 ipcMain.handle('stat-file', (_, filePath) => fs.statSync(filePath).size);
+
+// -----------------------------------------------------------------------
+// Main-process ffmpeg (NODEFS マウントで大容量ファイルもメモリに載せずに処理)
+// -----------------------------------------------------------------------
+let _ffmpegMain = null;
+
+async function ensureMainFFmpeg() {
+    if (_ffmpegMain) return _ffmpegMain;
+    const { pathToFileURL } = require('url');
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const ff = new FFmpeg();
+    await ff.load({
+        coreURL: pathToFileURL(path.join(ROOT, 'demo/ffmpeg-core.js')).href,
+        wasmURL: pathToFileURL(path.join(ROOT, 'demo/ffmpeg-core.wasm')).href,
+    });
+    _ffmpegMain = ff;
+    return ff;
+}
+
+async function withNODEFS(filePath, fn) {
+    const ff = await ensureMainFFmpeg();
+    const dir = path.dirname(filePath);
+    const basename = path.basename(filePath);
+    // 前回の残骸をクリーンアップ
+    try { await ff.unmount('/input_dir'); } catch {}
+    try { await ff.deleteDir('/input_dir'); } catch {}
+    await ff.createDir('/input_dir');
+    await ff.mount('NODEFS', { root: dir }, '/input_dir');
+    try {
+        return await fn(ff, `/input_dir/${basename}`);
+    } finally {
+        await ff.unmount('/input_dir').catch(() => {});
+        await ff.deleteDir('/input_dir').catch(() => {});
+    }
+}
+
+ipcMain.handle('detect-subtitles', async (_, filePath) => {
+    try {
+        return await withNODEFS(filePath, async (ff, inputPath) => {
+            const logs = [];
+            const h = ({ message }) => logs.push(message);
+            ff.on('log', h);
+            try { await ff.exec(['-i', inputPath, '-f', 'null', '-']); } catch {}
+            ff.off('log', h);
+            let i = 0;
+            return logs.flatMap((line) => {
+                const m = line.match(/Stream #0:(\d+)(?:\((\w+)\))?[^:]*:\s*Subtitle:\s*(\w+)/i);
+                return m ? [{ index: i++, streamIndex: +m[1], lang: m[2] ?? null, codec: m[3].toLowerCase() }] : [];
+            });
+        });
+    } catch (e) {
+        _ffmpegMain = null;
+        throw e;
+    }
+});
+
+ipcMain.handle('extract-subtitle', async (_, { filePath, streamIndex, codec }) => {
+    try {
+        return await withNODEFS(filePath, async (ff, inputPath) => {
+            const isAss = codec === 'ass' || codec === 'ssa';
+            const outName = isAss ? 'out.ass' : 'out.srt';
+            const args = isAss
+                ? ['-i', inputPath, '-map', `0:${streamIndex}`, '-c:s', 'copy', outName]
+                : ['-i', inputPath, '-map', `0:${streamIndex}`, '-c:s', 'srt', outName];
+            await ff.exec(args);
+            const data = await ff.readFile(outName);
+            await ff.deleteFile(outName).catch(() => {});
+            return { text: Buffer.from(data).toString('utf8'), filename: outName };
+        });
+    } catch (e) {
+        _ffmpegMain = null;
+        throw e;
+    }
+});
 
 // -----------------------------------------------------------------------
 // Window
