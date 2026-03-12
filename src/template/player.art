@@ -20,15 +20,6 @@
 </div>
 <div class="dplayer-controller-mask"></div>
 <div class="dplayer-controller">
-    <div class="dplayer-icons dplayer-comment-box">
-        <button class="dplayer-icon dplayer-comment-setting-icon" aria-label="{{ tran('Setting') }}" data-balloon-nofocus data-balloon-pos="up">
-            <span class="dplayer-icon-content">{{@ icons.pallette }}</span>
-        </button>
-        <input class="dplayer-comment-input" type="search" enterkeyhint="send" placeholder="{{ tran('Input danmaku, hit Enter') }}" spellcheck="false" maxlength="60">
-        <button class="dplayer-icon dplayer-send-icon" aria-label="{{ tran('Send') }}" data-balloon-nofocus data-balloon-pos="up">
-            <span class="dplayer-icon-content">{{@ icons.send }}</span>
-        </button>
-    </div>
     <div class="dplayer-icons dplayer-icons-left">
         <button class="dplayer-icon dplayer-play-icon">
             <span class="dplayer-icon-content">{{@ icons.play }}</span>
@@ -69,8 +60,9 @@
         </div>
         {{ /if }}
         <div class="dplayer-comment">
-            <button class="dplayer-icon dplayer-comment-icon" aria-label="{{ tran('Send danmaku') }}" data-balloon-nofocus data-balloon-pos="up">
-                <span class="dplayer-icon-content">{{@ icons.comment }}</span>
+            <button class="dplayer-icon dplayer-comment-icon" aria-label="{{ tran('Hide danmaku') }}" data-balloon-nofocus data-balloon-pos="up">
+                <span class="dplayer-icon-content dplayer-danmaku-on">{{@ icons.comment }}</span>
+                <span class="dplayer-icon-content dplayer-danmaku-off">{{@ icons.commentOff }}</span>
             </button>
         </div>
         {{ if options.subtitle }}

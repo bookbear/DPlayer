@@ -104,7 +104,7 @@ class HotKey {
                             event.preventDefault();
                             this.player.controller.show();
                             if (this.player.comment != null) {
-                                this.player.comment.show();
+                                this.player.comment.toggleDanmaku();
                             }
                         }
                     }

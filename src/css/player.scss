@@ -55,6 +55,15 @@
         }
     }
 
+    // 弾幕トグルボタン: ONのときはcommentアイコン、OFFのときはcommentOffアイコン
+    .dplayer-danmaku-on  { display: inline; }
+    .dplayer-danmaku-off { display: none; }
+
+    .dplayer-comment-icon.dplayer-danmaku-hidden {
+        .dplayer-danmaku-on  { display: none; }
+        .dplayer-danmaku-off { display: inline; }
+    }
+
     &.dplayer-no-audio-switching {
         .dplayer-setting-box {
             .dplayer-setting-audio {

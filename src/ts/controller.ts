@@ -447,7 +447,6 @@ class Controller {
     hide() : void{
         this.player.container.classList.add('dplayer-hide-controller');
         this.player.setting.hide();
-        this.player.comment && this.player.comment.hide();
     }
 
     isShow(): boolean {
