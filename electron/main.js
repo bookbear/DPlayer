@@ -144,21 +144,37 @@ function getFFmpegPath() {
     return 'ffmpeg';
 }
 
-function spawnFFmpeg(args) {
+// 実行中の ffmpeg プロセスを追跡（新ファイル読み込み時に kill するため）
+const _runningProcs = new Set();
+
+function spawnFFmpeg(args, onStderr) {
     return new Promise((resolve, reject) => {
         const proc = spawn(getFFmpegPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        _runningProcs.add(proc);
         const stderr = [];
-        proc.stderr.on('data', (d) => stderr.push(d.toString()));
+        proc.stderr.on('data', (d) => {
+            const s = d.toString();
+            stderr.push(s);
+            if (onStderr) onStderr(s);
+        });
         proc.stdout.on('data', () => {});
-        proc.on('close', (code) => resolve({ code, stderr: stderr.join('') }));
-        proc.on('error', (e) => reject(
-            new Error(`ffmpeg が見つかりません。ffmpeg を PATH に追加するか、${ROOT} に ffmpeg.exe を置いてください。\n(${e.message})`),
-        ));
+        proc.on('close', (code) => { _runningProcs.delete(proc); resolve({ code, stderr: stderr.join('') }); });
+        proc.on('error', (e) => {
+            _runningProcs.delete(proc);
+            reject(new Error(`ffmpeg が見つかりません。ffmpeg を PATH に追加するか、${ROOT} に ffmpeg.exe を置いてください。\n(${e.message})`));
+        });
     });
 }
 
+// 新しいファイルを開く前に呼ぶ: 実行中の ffmpeg を全て終了させる
+ipcMain.handle('cancel-ffmpeg', () => {
+    for (const proc of _runningProcs) proc.kill();
+    _runningProcs.clear();
+});
+
+// 字幕トラック検出: ffmpeg -i でヘッダーだけ読んで即終了（全体スキャン不要）
 ipcMain.handle('detect-subtitles', async (_, filePath) => {
-    const { stderr } = await spawnFFmpeg(['-i', filePath, '-f', 'null', '-']);
+    const { stderr } = await spawnFFmpeg(['-i', filePath]);
     let i = 0;
     return stderr.split('\n').flatMap((line) => {
         const m = line.match(/Stream #0:(\d+)(?:\((\w+)\))?[^:]*:\s*Subtitle:\s*(\w+)/i);
@@ -166,13 +182,18 @@ ipcMain.handle('detect-subtitles', async (_, filePath) => {
     });
 });
 
-ipcMain.handle('extract-subtitle', async (_, { filePath, streamIndex, codec }) => {
+// 字幕抽出: 進捗を renderer にリアルタイム送信
+ipcMain.handle('extract-subtitle', async (event, { filePath, streamIndex, codec }) => {
     const isAss = codec === 'ass' || codec === 'ssa';
     const outFile = path.join(os.tmpdir(), `dplayer_sub_${Date.now()}.${isAss ? 'ass' : 'srt'}`);
     const args = isAss
         ? ['-y', '-i', filePath, '-map', `0:${streamIndex}`, '-c:s', 'copy', outFile]
         : ['-y', '-i', filePath, '-map', `0:${streamIndex}`, '-c:s', 'srt', outFile];
-    const { code, stderr } = await spawnFFmpeg(args);
+    const { code } = await spawnFFmpeg(args, (chunk) => {
+        // time=HH:MM:SS.xx を拾って進捗表示
+        const m = chunk.match(/time=(\d{2}:\d{2}:\d{2})/);
+        if (m) event.sender.send('ffmpeg-progress', m[1]);
+    });
     try {
         if (code !== 0 || !fs.existsSync(outFile)) {
             throw new Error(`ffmpeg が終了コード ${code} で失敗しました`);

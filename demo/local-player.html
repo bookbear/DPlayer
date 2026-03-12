@@ -429,7 +429,16 @@
         // -----------------------------------------------------------------------
         // Electron: ファイルパスから動画を開く共通処理
         // -----------------------------------------------------------------------
+        // 抽出進捗をUIに反映
+        if (window.electronAPI?.onFFmpegProgress) {
+            window.electronAPI.onFFmpegProgress((time) => {
+                setProgress(`字幕を抽出中... ${time}`, null);
+            });
+        }
+
         async function onElectronFileOpen(filePath) {
+            // 前のファイルの ffmpeg が動いていれば終了させる
+            await window.electronAPI.cancelFFmpeg().catch(() => {});
             _electronFilePath = filePath;
             const name = filePath.replace(/\\/g, '/').split('/').pop();
             const ext  = name.split('.').pop().toLowerCase();
