@@ -12,8 +12,10 @@ const path = require('path');
 // -----------------------------------------------------------------------
 // Path resolution (dev vs packaged)
 // -----------------------------------------------------------------------
+// app.getAppPath() はパッケージ時も開発時も正しいパスを返す
+// (ASAR 無効時: resources/app/, 開発時: プロジェクトルート)
 const ROOT = app.isPackaged
-    ? path.join(process.resourcesPath, 'app')
+    ? app.getAppPath()
     : path.resolve(__dirname, '..');
 
 // -----------------------------------------------------------------------

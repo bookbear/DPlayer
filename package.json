@@ -102,6 +102,7 @@
     "build": {
         "appId": "com.tsukumijima.dplayer-local",
         "productName": "DPlayer",
+        "asar": false,
         "directories": {
             "output": "release"
         },
