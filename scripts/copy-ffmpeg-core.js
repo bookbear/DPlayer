@@ -1,21 +1,50 @@
 'use strict';
 
-// @ffmpeg/core の wasm/js ファイルを demo/ にコピーする
-// npm install (prepare フック) で自動実行される
+// ffmpeg.wasm 関連ファイルを demo/ にコピーする
+// npm install (prepare フック) および electron:build 前に実行される
+//
+// コピー先:
+//   @ffmpeg/core/dist/esm/        → demo/ffmpeg-core.js, demo/ffmpeg-core.wasm
+//   @ffmpeg/ffmpeg/dist/esm/      → demo/vendor/ffmpeg/
+//   @ffmpeg/util/dist/esm/        → demo/vendor/ffmpeg-util/
 
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
 
-const SRC = path.resolve(__dirname, '../node_modules/@ffmpeg/core/dist/esm');
-const DEST = path.resolve(__dirname, '../demo');
+const ROOT = path.resolve(__dirname, '..');
 
-for (const file of ['ffmpeg-core.js', 'ffmpeg-core.wasm']) {
-    const src = path.join(SRC, file);
-    const dest = path.join(DEST, file);
+function copyDir(src, dest) {
     if (!fs.existsSync(src)) {
-        console.warn(`[copy-ffmpeg-core] not found: ${src}`);
-        continue;
+        console.warn(`[copy-ffmpeg] not found: ${src}`);
+        return;
     }
-    fs.copyFileSync(src, dest);
-    console.log(`[copy-ffmpeg-core] copied ${file}`);
+    fs.mkdirSync(dest, { recursive: true });
+    for (const entry of fs.readdirSync(src)) {
+        const s = path.join(src, entry);
+        const d = path.join(dest, entry);
+        if (fs.statSync(s).isDirectory()) {
+            copyDir(s, d);
+        } else {
+            fs.copyFileSync(s, d);
+        }
+    }
+    console.log(`[copy-ffmpeg] copied ${path.relative(ROOT, src)} → ${path.relative(ROOT, dest)}`);
 }
+
+// ffmpeg-core (wasm本体)
+copyDir(
+    path.join(ROOT, 'node_modules/@ffmpeg/core/dist/esm'),
+    path.join(ROOT, 'demo'),
+);
+
+// ffmpeg ESM モジュール
+copyDir(
+    path.join(ROOT, 'node_modules/@ffmpeg/ffmpeg/dist/esm'),
+    path.join(ROOT, 'demo/vendor/ffmpeg'),
+);
+
+// ffmpeg-util ESM モジュール
+copyDir(
+    path.join(ROOT, 'node_modules/@ffmpeg/util/dist/esm'),
+    path.join(ROOT, 'demo/vendor/ffmpeg-util'),
+);

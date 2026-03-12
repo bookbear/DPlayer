@@ -36,8 +36,8 @@ const ROUTES = {
 };
 
 const STATIC_DIRS = [
-    { prefix: '/ffmpeg/',      dir: path.join(ROOT, 'node_modules/@ffmpeg/ffmpeg/dist/esm') },
-    { prefix: '/ffmpeg-util/', dir: path.join(ROOT, 'node_modules/@ffmpeg/util/dist/esm') },
+    { prefix: '/ffmpeg/',      dir: path.join(ROOT, 'demo/vendor/ffmpeg') },
+    { prefix: '/ffmpeg-util/', dir: path.join(ROOT, 'demo/vendor/ffmpeg-util') },
 ];
 
 const MIME_EXT = { '.js': 'application/javascript', '.wasm': 'application/wasm', '.html': 'text/html' };

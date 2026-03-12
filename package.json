@@ -41,7 +41,7 @@
         "docs:dev": "vuepress dev docs",
         "docs:build": "vuepress build docs",
         "electron:start": "npm run build && electron .",
-        "electron:build": "npm run build && electron-builder --win"
+        "electron:build": "npm run build && node scripts/copy-ffmpeg-core.js && electron-builder --win"
     },
     "dependencies": {
         "aribb24.js": "~1.11.5",
@@ -112,8 +112,7 @@
             "demo/local-player.html",
             "demo/ffmpeg-core.js",
             "demo/ffmpeg-core.wasm",
-            "node_modules/@ffmpeg/ffmpeg/dist/esm/**",
-            "node_modules/@ffmpeg/util/dist/esm/**"
+            "demo/vendor/**"
         ],
         "win": {
             "target": "portable"
