@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, globalShortcut } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -211,6 +211,9 @@ if (!gotLock) {
     app.whenReady().then(() => {
         protocol.handle('app', handleAppRequest);
         createWindow();
+        globalShortcut.register('F12', () => {
+            if (mainWindow) mainWindow.webContents.toggleDevTools();
+        });
     });
 
     app.on('window-all-closed', () => {

@@ -179,6 +179,7 @@
         // ffmpeg.wasm
         // -----------------------------------------------------------------------
         let FFmpeg = null, fetchFile = null, ffmpeg = null;
+        let _ffmpegInitError = null;
         const canUseSAB = typeof SharedArrayBuffer !== 'undefined';
 
         if (canUseSAB) {
@@ -188,7 +189,8 @@
                 FFmpeg = fm.FFmpeg;
                 fetchFile = fu.fetchFile;
             } catch (e) {
-                console.warn('ffmpeg.wasm load failed:', e);
+                _ffmpegInitError = e;
+                console.error('ffmpeg import failed:', e);
             }
         }
 
@@ -393,7 +395,13 @@
 
             // ffmpeg.wasm が使えれば字幕を自動検出
             if (!FFmpeg) {
-                setStatus('字幕の自動抽出には HTTPS / localhost が必要です。', 'warn');
+                if (!canUseSAB) {
+                    setStatus(`SharedArrayBuffer が使用不可 (crossOriginIsolated: ${window.crossOriginIsolated})`, 'err');
+                } else if (_ffmpegInitError) {
+                    setStatus(`ffmpeg モジュール読み込みエラー: ${_ffmpegInitError.message}`, 'err');
+                } else {
+                    setStatus('字幕の自動抽出には HTTPS / localhost が必要です。', 'warn');
+                }
                 return;
             }
 
@@ -573,7 +581,13 @@
 
                 // ffmpeg.wasm で字幕を自動検出
                 if (!FFmpeg) {
+                    if (!canUseSAB) {
+                    setStatus(`SharedArrayBuffer が使用不可 (crossOriginIsolated: ${window.crossOriginIsolated})`, 'err');
+                } else if (_ffmpegInitError) {
+                    setStatus(`ffmpeg モジュール読み込みエラー: ${_ffmpegInitError.message}`, 'err');
+                } else {
                     setStatus('字幕の自動抽出には HTTPS / localhost が必要です。', 'warn');
+                }
                     return;
                 }
 
