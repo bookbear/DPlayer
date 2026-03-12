@@ -115,7 +115,7 @@
             "node_modules/@ffmpeg/util/dist/esm/**"
         ],
         "win": {
-            "target": "nsis"
+            "target": "portable"
         },
         "fileAssociations": [
             {
@@ -131,11 +131,7 @@
                 "name": "Video File",
                 "role": "Viewer"
             }
-        ],
-        "nsis": {
-            "oneClick": false,
-            "allowToChangeInstallationDirectory": true
-        }
+        ]
     },
     "gitHooks": {
         "pre-commit": "npm run format"
