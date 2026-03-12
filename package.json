@@ -115,7 +115,7 @@
             "demo/vendor/**"
         ],
         "win": {
-            "target": "portable"
+            "target": "zip"
         },
         "fileAssociations": [
             {
