@@ -155,6 +155,7 @@ class Setting {
                 }
             }
             this.player.user.set('danmaku', this.showDanmaku ? 1 : 0);
+            this.player.comment?.syncUI();
         });
 
         // unlimit danmaku

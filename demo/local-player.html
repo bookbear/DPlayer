@@ -476,16 +476,27 @@
                 }
 
                 setProgress(`字幕トラック ${track.index + 1} を抽出中...`, 0);
-                const outFile = 'out.srt';
-                await ffmpeg.exec(['-i','input','-map',`0:${track.streamIndex}`,'-c:s','srt', outFile]);
+                const { color, type } = getDanOptions();
+
+                // ASS/SSA はそのまま抽出、それ以外は SRT に変換
+                const isAss = track.codec === 'ass' || track.codec === 'ssa';
+                const outFile = isAss ? 'out.ass' : 'out.srt';
+
+                if (isAss) {
+                    await ffmpeg.exec(['-i','input','-map',`0:${track.streamIndex}`,'-c:s','copy', outFile]);
+                } else {
+                    await ffmpeg.exec(['-i','input','-map',`0:${track.streamIndex}`,'-c:s','srt', outFile]);
+                }
+
                 const data = await ffmpeg.readFile(outFile);
                 await ffmpeg.deleteFile(outFile);
 
                 const text = new TextDecoder().decode(data);
-                const { color, type } = getDanOptions();
-                applyDanmaku(parseSRT(text, color, type));
+                applyDanmaku(parseSubtitleText(text, outFile, color, type));
             } catch (e) {
-                setStatus(`抽出エラー: ${e.message}`, 'err');
+                const msg = e instanceof Error ? e.message : String(e);
+                setStatus(`抽出エラー: ${msg || '不明なエラー'}`, 'err');
+                console.error('extractAndApply error:', e);
             } finally {
                 setProgress(null);
             }

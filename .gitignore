@@ -8,7 +8,7 @@ wxw
 .vscode
 docs/.vuepress/dist
 dist/src/*
-pre*
+pre[^l]*
 .node-version
 # ffmpeg.wasm 関連 (scripts/copy-ffmpeg-core.js でコピーされる)
 demo/ffmpeg-core.js
