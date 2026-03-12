@@ -1,25 +1,32 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, session } = require('electron');
-
-// SharedArrayBuffer を有効にするため Chromium フラグを設定
-// (COOP/COEP ヘッダーだけでは Electron 上で不十分な場合がある)
-app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
-const http = require('http');
+const { app, BrowserWindow, ipcMain, protocol } = require('electron');
 const fs = require('fs');
 const path = require('path');
+
+// app:// スキームをアプリ起動前に登録する（app.ready より前に呼ぶ必要あり）
+// secure: true → HTTPS 相当の secure context → SharedArrayBuffer が使える
+// standard: true → 通常の URL として扱う（相対パス・クッキーなど）
+protocol.registerSchemesAsPrivileged([{
+    scheme: 'app',
+    privileges: {
+        secure: true,
+        standard: true,
+        supportFetchAPI: true,
+        corsEnabled: true,
+        stream: true,
+    },
+}]);
 
 // -----------------------------------------------------------------------
 // Path resolution (dev vs packaged)
 // -----------------------------------------------------------------------
-// app.getAppPath() はパッケージ時も開発時も正しいパスを返す
-// (ASAR 無効時: resources/app/, 開発時: プロジェクトルート)
 const ROOT = app.isPackaged
     ? app.getAppPath()
     : path.resolve(__dirname, '..');
 
 // -----------------------------------------------------------------------
-// Static file server with COOP/COEP headers (required for SharedArrayBuffer)
+// Route mapping
 // -----------------------------------------------------------------------
 const ROUTES = {
     '/':                 { file: path.join(ROOT, 'demo/local-player.html'),  mime: 'text/html' },
@@ -33,12 +40,15 @@ const STATIC_DIRS = [
     { prefix: '/ffmpeg-util/', dir: path.join(ROOT, 'node_modules/@ffmpeg/util/dist/esm') },
 ];
 
+const MIME_EXT = { '.js': 'application/javascript', '.wasm': 'application/wasm', '.html': 'text/html' };
+
 const COOP_HEADERS = {
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Cross-Origin-Embedder-Policy': 'credentialless',
+    'Access-Control-Allow-Origin': '*',
 };
 
-// Cache static assets in memory (wasm etc.)
+// 静的アセットのメモリキャッシュ
 const fileCache = new Map();
 function readCached(filePath) {
     if (!fileCache.has(filePath)) {
@@ -47,80 +57,91 @@ function readCached(filePath) {
     return fileCache.get(filePath);
 }
 
-const MIME_EXT = { '.js': 'application/javascript', '.wasm': 'application/wasm', '.html': 'text/html' };
-
-function createServer() {
-    return new Promise((resolve) => {
-        const server = http.createServer((req, res) => {
-            const urlPath = req.url.split('?')[0];
-
-            // /media: streaming endpoint for local video files (supports range requests)
-            if (urlPath === '/media') {
-                const filePath = new URL(req.url, 'http://localhost').searchParams.get('path');
-                if (!filePath || !fs.existsSync(filePath)) {
-                    res.writeHead(404, COOP_HEADERS); res.end(); return;
-                }
-                const stat = fs.statSync(filePath);
-                const range = req.headers.range;
-                if (range) {
-                    const [startStr, endStr] = range.replace(/bytes=/, '').split('-');
-                    const start = parseInt(startStr, 10);
-                    const end = endStr ? parseInt(endStr, 10) : stat.size - 1;
-                    res.writeHead(206, {
-                        ...COOP_HEADERS,
-                        'Content-Range': `bytes ${start}-${end}/${stat.size}`,
-                        'Accept-Ranges': 'bytes',
-                        'Content-Length': end - start + 1,
-                        'Content-Type': 'video/mp4',
-                    });
-                    fs.createReadStream(filePath, { start, end }).pipe(res);
-                } else {
-                    res.writeHead(200, {
-                        ...COOP_HEADERS,
-                        'Content-Length': stat.size,
-                        'Content-Type': 'video/mp4',
-                        'Accept-Ranges': 'bytes',
-                    });
-                    fs.createReadStream(filePath).pipe(res);
-                }
-                return;
-            }
-
-            // Exact routes (HTML, JS, WASM)
-            if (ROUTES[urlPath]) {
-                const { file, mime } = ROUTES[urlPath];
-                try {
-                    const data = readCached(file);
-                    res.writeHead(200, { 'Content-Type': mime, ...COOP_HEADERS });
-                    res.end(data);
-                } catch {
-                    res.writeHead(404, COOP_HEADERS); res.end('Not found');
-                }
-                return;
-            }
-
-            // Static directories (ffmpeg ESM modules)
-            for (const { prefix, dir } of STATIC_DIRS) {
-                if (urlPath.startsWith(prefix)) {
-                    const file = path.join(dir, urlPath.slice(prefix.length));
-                    const mime = MIME_EXT[path.extname(file)] || 'application/octet-stream';
-                    try {
-                        const data = readCached(file);
-                        res.writeHead(200, { 'Content-Type': mime, ...COOP_HEADERS });
-                        res.end(data);
-                    } catch {
-                        res.writeHead(404, COOP_HEADERS); res.end('Not found');
-                    }
-                    return;
-                }
-            }
-
-            res.writeHead(404, COOP_HEADERS);
-            res.end('Not found');
-        });
-
-        server.listen(0, '127.0.0.1', () => resolve(server));
+// Node.js の Readable ストリームを Web ReadableStream に変換
+function toWebStream(nodeStream) {
+    return new ReadableStream({
+        start(controller) {
+            nodeStream.on('data', (chunk) => controller.enqueue(chunk));
+            nodeStream.on('end',  ()      => controller.close());
+            nodeStream.on('error', (err)  => controller.error(err));
+        },
+        cancel() { nodeStream.destroy(); },
     });
+}
+
+// -----------------------------------------------------------------------
+// app:// プロトコルハンドラー
+// -----------------------------------------------------------------------
+function handleAppRequest(request) {
+    const url = new URL(request.url);
+    const urlPath = url.pathname;
+
+    // /media: ローカル動画ファイルのストリーミング（range request 対応）
+    if (urlPath === '/media') {
+        const filePath = url.searchParams.get('path');
+        if (!filePath || !fs.existsSync(filePath)) {
+            return new Response('Not found', { status: 404, headers: COOP_HEADERS });
+        }
+        const stat = fs.statSync(filePath);
+        const rangeHeader = request.headers.get('range');
+
+        if (rangeHeader) {
+            const [startStr, endStr] = rangeHeader.replace(/bytes=/, '').split('-');
+            const start = parseInt(startStr, 10);
+            const end = endStr ? parseInt(endStr, 10) : stat.size - 1;
+            return new Response(toWebStream(fs.createReadStream(filePath, { start, end })), {
+                status: 206,
+                headers: {
+                    ...COOP_HEADERS,
+                    'Content-Range':  `bytes ${start}-${end}/${stat.size}`,
+                    'Accept-Ranges':  'bytes',
+                    'Content-Length': String(end - start + 1),
+                    'Content-Type':   'video/mp4',
+                },
+            });
+        }
+
+        return new Response(toWebStream(fs.createReadStream(filePath)), {
+            status: 200,
+            headers: {
+                ...COOP_HEADERS,
+                'Content-Length': String(stat.size),
+                'Content-Type':   'video/mp4',
+                'Accept-Ranges':  'bytes',
+            },
+        });
+    }
+
+    // 静的ファイル（exact match）
+    if (ROUTES[urlPath]) {
+        const { file, mime } = ROUTES[urlPath];
+        try {
+            return new Response(readCached(file), {
+                status: 200,
+                headers: { 'Content-Type': mime, ...COOP_HEADERS },
+            });
+        } catch {
+            return new Response('Not found', { status: 404, headers: COOP_HEADERS });
+        }
+    }
+
+    // 静的ディレクトリ（ffmpeg ESM モジュール）
+    for (const { prefix, dir } of STATIC_DIRS) {
+        if (urlPath.startsWith(prefix)) {
+            const file = path.join(dir, urlPath.slice(prefix.length));
+            const mime = MIME_EXT[path.extname(file)] || 'application/octet-stream';
+            try {
+                return new Response(readCached(file), {
+                    status: 200,
+                    headers: { 'Content-Type': mime, ...COOP_HEADERS },
+                });
+            } catch {
+                return new Response('Not found', { status: 404, headers: COOP_HEADERS });
+            }
+        }
+    }
+
+    return new Response('Not found', { status: 404, headers: COOP_HEADERS });
 }
 
 // -----------------------------------------------------------------------
@@ -133,12 +154,8 @@ ipcMain.handle('stat-file', (_, filePath) => fs.statSync(filePath).size);
 // Window
 // -----------------------------------------------------------------------
 let mainWindow = null;
-let serverPort = null;
 
-async function createWindow() {
-    const server = await createServer();
-    serverPort = server.address().port;
-
+function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 760,
@@ -154,9 +171,8 @@ async function createWindow() {
     });
 
     mainWindow.setMenuBarVisibility(false);
-    mainWindow.loadURL(`http://127.0.0.1:${serverPort}`);
+    mainWindow.loadURL('app://localhost/');
 
-    // Send file path from argv after page loads
     mainWindow.webContents.once('did-finish-load', () => {
         const filePath = getFileArg(process.argv);
         if (filePath) mainWindow.webContents.send('open-file', filePath);
@@ -164,8 +180,6 @@ async function createWindow() {
 }
 
 function getFileArg(argv) {
-    // In dev: argv = [electron, script, ...args]
-    // Packaged: argv = [exe, ...args]
     const skip = app.isPackaged ? 1 : 2;
     for (let i = skip; i < argv.length; i++) {
         const a = argv[i];
@@ -181,7 +195,6 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
     app.quit();
 } else {
-    // Windows: second instance opened with a file
     app.on('second-instance', (_, argv) => {
         if (!mainWindow) return;
         if (mainWindow.isMinimized()) mainWindow.restore();
@@ -190,24 +203,13 @@ if (!gotLock) {
         if (filePath) mainWindow.webContents.send('open-file', filePath);
     });
 
-    // macOS: open-file event
     app.on('open-file', (event, filePath) => {
         event.preventDefault();
         if (mainWindow) mainWindow.webContents.send('open-file', filePath);
     });
 
     app.whenReady().then(() => {
-        // HTTP サーバーのヘッダーに加え、Electron の session 側でも
-        // COOP/COEP を注入して crossOriginIsolated を確実に有効化する
-        session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-            callback({
-                responseHeaders: {
-                    ...details.responseHeaders,
-                    'Cross-Origin-Opener-Policy': ['same-origin'],
-                    'Cross-Origin-Embedder-Policy': ['credentialless'],
-                },
-            });
-        });
+        protocol.handle('app', handleAppRequest);
         createWindow();
     });
 
