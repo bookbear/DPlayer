@@ -3,6 +3,7 @@ declare class Comment {
     player: DPlayer;
     constructor(player: DPlayer);
     toggleDanmaku(): void;
+    syncUI(): void;
 }
 export default Comment;
 //# sourceMappingURL=comment.d.ts.map

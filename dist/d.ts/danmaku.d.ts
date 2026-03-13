@@ -49,6 +49,7 @@ declare class Danmaku {
     context: CanvasRenderingContext2D | null;
     showing: boolean;
     paused: boolean;
+    _stopped: boolean;
     constructor(options: DanmakuOptions);
     load(): void;
     reload(newAPI: DanmakuOptionsAPI): void;
@@ -80,6 +81,7 @@ declare class Danmaku {
     toggle(): void;
     unlimit(boolean: boolean): void;
     speed(rate: number): void;
+    destroy(): void;
     _danAnimation(position: DPlayerType.DanmakuType): string;
 }
 export default Danmaku;

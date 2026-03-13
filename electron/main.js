@@ -144,7 +144,59 @@ function getFFmpegPath() {
     return 'ffmpeg';
 }
 
-// 実行中の ffmpeg プロセスを追跡（新ファイル読み込み時に kill するため）
+// -----------------------------------------------------------------------
+// MKVToolNix (mkvmerge / mkvextract) — MKV ファイルの高速字幕抽出
+// -----------------------------------------------------------------------
+let _mkvToolsChecked = false;
+let _mkvToolsAvailable = false;
+
+function getMkvToolPath(tool) {
+    const exe = process.platform === 'win32' ? `${tool}.exe` : tool;
+    const candidates = [
+        process.env.MKVTOOLNIX_PATH ? path.join(process.env.MKVTOOLNIX_PATH, exe) : null,
+        path.join(ROOT, exe),
+        ...(process.platform === 'win32' ? [
+            path.join('C:\\Program Files\\MKVToolNix', exe),
+            path.join('C:\\Program Files (x86)\\MKVToolNix', exe),
+        ] : []),
+    ].filter(Boolean);
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return tool;
+}
+
+async function hasMkvTools() {
+    if (_mkvToolsChecked) return _mkvToolsAvailable;
+    _mkvToolsChecked = true;
+    try {
+        for (const tool of ['mkvmerge', 'mkvextract']) {
+            await new Promise((resolve, reject) => {
+                const proc = spawn(getMkvToolPath(tool), ['--version'],
+                    { stdio: 'ignore', windowsHide: true });
+                proc.on('close', (code) => code === 0 ? resolve() : reject());
+                proc.on('error', reject);
+            });
+        }
+        _mkvToolsAvailable = true;
+    } catch {
+        _mkvToolsAvailable = false;
+    }
+    return _mkvToolsAvailable;
+}
+
+function mapMkvCodec(codecId) {
+    const id = (codecId || '').toUpperCase();
+    if (id.includes('ASS') || id === 'S_TEXT/ASS') return 'ass';
+    if (id.includes('SSA') || id === 'S_TEXT/SSA') return 'ssa';
+    if (id.includes('SRT') || id.includes('SUBRIP') || id === 'S_TEXT/UTF8') return 'subrip';
+    if (id.includes('PGS') || id === 'S_HDMV/PGS') return 'hdmv_pgs_subtitle';
+    if (id.includes('VOBSUB') || id === 'S_VOBSUB') return 'dvd_subtitle';
+    if (id.includes('WEBVTT') || id === 'S_TEXT/WEBVTT') return 'webvtt';
+    return codecId?.toLowerCase() || 'unknown';
+}
+
+// 実行中の子プロセスを追跡（新ファイル読み込み時に kill するため）
 const _runningProcs = new Set();
 
 function spawnFFmpeg(args, onStderr) {
@@ -156,13 +208,17 @@ function spawnFFmpeg(args, onStderr) {
             try { os.setPriority(proc.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
         }
         const stderr = [];
+        const stdout = [];
         proc.stderr.on('data', (d) => {
             const s = d.toString();
             stderr.push(s);
             if (onStderr) onStderr(s);
         });
-        proc.stdout.on('data', () => {});
-        proc.on('close', (code) => { _runningProcs.delete(proc); resolve({ code, stderr: stderr.join('') }); });
+        proc.stdout.on('data', (d) => stdout.push(d));
+        proc.on('close', (code) => {
+            _runningProcs.delete(proc);
+            resolve({ code, stderr: stderr.join(''), stdout: Buffer.concat(stdout) });
+        });
         proc.on('error', (e) => {
             _runningProcs.delete(proc);
             reject(new Error(`ffmpeg が見つかりません。ffmpeg を PATH に追加するか、${ROOT} に ffmpeg.exe を置いてください。\n(${e.message})`));
@@ -170,43 +226,104 @@ function spawnFFmpeg(args, onStderr) {
     });
 }
 
-// 新しいファイルを開く前に呼ぶ: 実行中の ffmpeg を全て終了させる
+// 新しいファイルを開く前に呼ぶ: 実行中の子プロセスを全て終了させる
 ipcMain.handle('cancel-ffmpeg', () => {
     for (const proc of _runningProcs) proc.kill();
     _runningProcs.clear();
 });
 
-// 字幕トラック検出: ffmpeg -i でヘッダーだけ読んで即終了（全体スキャン不要）
+// 字幕トラック検出
 ipcMain.handle('detect-subtitles', async (_, filePath) => {
+    const isMkv = /\.mkv$/i.test(filePath);
+
+    // MKV + MKVToolNix: mkvmerge -J で高速検出（構造化 JSON 出力）
+    if (isMkv && await hasMkvTools()) {
+        return new Promise((resolve, reject) => {
+            const proc = spawn(getMkvToolPath('mkvmerge'), ['-J', filePath],
+                { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+            const chunks = [];
+            proc.stdout.on('data', (d) => chunks.push(d));
+            proc.on('close', () => {
+                try {
+                    const info = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                    let i = 0;
+                    const subtitles = (info.tracks || [])
+                        .filter(t => t.type === 'subtitles')
+                        .map(t => ({
+                            index: i++,
+                            streamIndex: t.id,
+                            lang: t.properties?.language ?? null,
+                            codec: mapMkvCodec(t.properties?.codec_id ?? t.codec),
+                            mkvTrackId: t.id,
+                        }));
+                    resolve({ tracks: subtitles, tool: 'mkvmerge' });
+                } catch (e) { reject(e); }
+            });
+            proc.on('error', reject);
+        });
+    }
+
+    // フォールバック: ffmpeg -i
     const { stderr } = await spawnFFmpeg(['-i', filePath]);
     let i = 0;
-    return stderr.split('\n').flatMap((line) => {
+    const subtitles = stderr.split('\n').flatMap((line) => {
         const m = line.match(/Stream #0:(\d+)(?:\((\w+)\))?[^:]*:\s*Subtitle:\s*(\w+)/i);
         return m ? [{ index: i++, streamIndex: +m[1], lang: m[2] ?? null, codec: m[3].toLowerCase() }] : [];
     });
+    return { tracks: subtitles, tool: 'ffmpeg' };
 });
 
 // 字幕抽出: 進捗を renderer にリアルタイム送信
-ipcMain.handle('extract-subtitle', async (event, { filePath, streamIndex, codec }) => {
+ipcMain.handle('extract-subtitle', async (event, { filePath, streamIndex, codec, mkvTrackId }) => {
     const isAss = codec === 'ass' || codec === 'ssa';
-    const outFile = path.join(os.tmpdir(), `dplayer_sub_${Date.now()}.${isAss ? 'ass' : 'srt'}`);
-    const args = isAss
-        ? ['-y', '-i', filePath, '-map', `0:${streamIndex}`, '-c:s', 'copy', outFile]
-        : ['-y', '-i', filePath, '-map', `0:${streamIndex}`, '-c:s', 'srt', outFile];
-    const { code } = await spawnFFmpeg(args, (chunk) => {
-        // time=HH:MM:SS.xx を拾って進捗表示
+
+    // MKV + MKVToolNix: mkvextract で高速抽出（cue インデックスで直接シーク）
+    if (mkvTrackId !== undefined && await hasMkvTools()) {
+        const ext = isAss ? 'ass' : 'srt';
+        const outFile = path.join(os.tmpdir(), `dplayer_sub_${Date.now()}.${ext}`);
+        return new Promise((resolve, reject) => {
+            const proc = spawn(
+                getMkvToolPath('mkvextract'),
+                ['tracks', filePath, `${mkvTrackId}:${outFile}`],
+                { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true },
+            );
+            _runningProcs.add(proc);
+            proc.stderr.on('data', (d) => {
+                const m = d.toString().match(/progress:\s*(\d+)%/i);
+                if (m) event.sender.send('ffmpeg-progress', `${m[1]}%`);
+            });
+            proc.on('close', (code) => {
+                _runningProcs.delete(proc);
+                try {
+                    if (code !== 0 || !fs.existsSync(outFile)) {
+                        reject(new Error(`mkvextract が終了コード ${code} で失敗しました`));
+                        return;
+                    }
+                    const text = fs.readFileSync(outFile, 'utf8');
+                    resolve({ text, filename: path.basename(outFile), tool: 'mkvextract' });
+                } finally {
+                    try { fs.unlinkSync(outFile); } catch {}
+                }
+            });
+            proc.on('error', (e) => {
+                _runningProcs.delete(proc);
+                reject(new Error(`mkvextract が見つかりません: ${e.message}`));
+            });
+        });
+    }
+
+    // フォールバック: ffmpeg（stdout パイプで一時ファイル不要）
+    const fmt = isAss ? 'ass' : 'srt';
+    const args = ['-y', '-nostdin', '-i', filePath, '-map', `0:${streamIndex}`,
+        '-c:s', isAss ? 'copy' : 'srt', '-f', fmt, 'pipe:1'];
+    const { code, stdout } = await spawnFFmpeg(args, (chunk) => {
         const m = chunk.match(/time=(\d{2}:\d{2}:\d{2})/);
         if (m) event.sender.send('ffmpeg-progress', m[1]);
     });
-    try {
-        if (code !== 0 || !fs.existsSync(outFile)) {
-            throw new Error(`ffmpeg が終了コード ${code} で失敗しました`);
-        }
-        const text = fs.readFileSync(outFile, 'utf8');
-        return { text, filename: path.basename(outFile) };
-    } finally {
-        try { fs.unlinkSync(outFile); } catch {}
+    if (code !== 0 || stdout.length === 0) {
+        throw new Error(`ffmpeg が終了コード ${code} で失敗しました`);
     }
+    return { text: stdout.toString('utf8'), filename: `subtitle.${fmt}`, tool: 'ffmpeg' };
 });
 
 // -----------------------------------------------------------------------

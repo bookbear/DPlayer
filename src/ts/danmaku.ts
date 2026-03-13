@@ -49,6 +49,7 @@ class Danmaku {
     context: CanvasRenderingContext2D | null = null;
     showing: boolean;
     paused = false;
+    _stopped = false;
 
     constructor(options: DanmakuOptions) {
         this.options = options;
@@ -184,6 +185,7 @@ class Danmaku {
     }
 
     frame(): void {
+        if (this._stopped) return;
         if (this.dan.length && !this.paused && this.showing) {
             let item = this.dan[this.danIndex];
             const dan = [];
@@ -240,11 +242,25 @@ class Danmaku {
             const danHeight = this.container.offsetHeight;
             const itemY = danHeight / itemHeight;
 
+            // Cache container right position once to avoid repeated forced reflows inside the tunnel loop
+            const containerRight = this.container.getBoundingClientRect().right;
+            // Pre-read all existing tunnel item positions in a single batch before any DOM mutation
+            const cachedItemRight = new Map<HTMLElement, number>();
+            for (const tunnelSlots of [this.danTunnel.right, this.danTunnel.top, this.danTunnel.bottom]) {
+                for (const slots of Object.values(tunnelSlots)) {
+                    for (const el of slots) {
+                        if (!cachedItemRight.has(el)) {
+                            cachedItemRight.set(el, el.getBoundingClientRect().right);
+                        }
+                    }
+                }
+            }
+
             const danItemRight = (danmakuItem: HTMLElement) => {
-                const danmakuItemWidth = danmakuItem.offsetWidth || parseInt(danmakuItem.style.width);
-                const danmakuItemRight =
-                    danmakuItem.getBoundingClientRect().right || this.container.getBoundingClientRect().right + danmakuItemWidth;
-                return this.container.getBoundingClientRect().right - danmakuItemRight;
+                const danmakuItemWidth = parseInt(danmakuItem.style.width) || danmakuItem.offsetWidth;
+                const rawRight = cachedItemRight.get(danmakuItem) ?? 0;
+                const danmakuItemRight = rawRight || (containerRight + danmakuItemWidth);
+                return containerRight - danmakuItemRight;
             };
 
             const danSpeed = (width: number) => (danWidth + width) / 5;
@@ -514,6 +530,11 @@ class Danmaku {
 
     speed(rate: number): void {
         this.options.speedRate = rate;
+    }
+
+    destroy(): void {
+        this._stopped = true;
+        this.clear();
     }
 
     _danAnimation(position: DPlayerType.DanmakuType): string {

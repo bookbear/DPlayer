@@ -1128,6 +1128,9 @@ class DPlayer {
         this.timer.destroy();
         this.setting.destroy();
         this.resizeObserver.disconnect();
+        if (this.danmaku) {
+            this.danmaku.destroy();
+        }
         this.video.removeAttribute('src');
         if (!keepContainerInnerHTML) {
             this.container.innerHTML = '';

@@ -383,14 +383,16 @@
                 }
 
                 setProgress(`字幕トラック ${track.index + 1} を抽出中...`, 0);
-                const { text, filename } = await window.electronAPI.extractSubtitle({
+                const result = await window.electronAPI.extractSubtitle({
                     filePath: _electronFilePath,
                     streamIndex: track.streamIndex,
                     codec: track.codec,
+                    mkvTrackId: track.mkvTrackId,
                 });
-                const danmaku = parseSubtitleText(text, filename, color, type);
+                const danmaku = parseSubtitleText(result.text, result.filename, color, type);
                 trackCache[track.index] = danmaku;
                 applyDanmaku(danmaku);
+                setStatus(`字幕 ${danmaku.length} 件を弾幕として表示中（${result.tool ?? 'ffmpeg'}）`, 'ok');
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 setStatus(`抽出エラー: ${msg || '不明なエラー'}`, 'err');
@@ -474,7 +476,9 @@
 
             try {
                 setProgress('字幕トラックを検出中...', 0);
-                tracks = await window.electronAPI.detectSubtitles(filePath);
+                const detectResult = await window.electronAPI.detectSubtitles(filePath);
+                tracks = detectResult.tracks ?? detectResult;
+                const detectTool = detectResult.tool ?? 'ffmpeg';
                 setProgress(null);
 
                 if (tracks.length === 0) {
@@ -483,7 +487,7 @@
                 }
 
                 renderTrackPanel();
-                setStatus(`字幕トラックが ${tracks.length} 件見つかりました。トラックを選んでください。`);
+                setStatus(`字幕トラックが ${tracks.length} 件見つかりました（${detectTool}）。トラックを選んでください。`);
 
                 if (tracks.length === 1) {
                     activeTrackIndex = 0;
