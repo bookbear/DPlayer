@@ -12,6 +12,8 @@
     font-family: inherit;
     color: #fff;
     overflow: hidden;
+    z-index: 1;
+    pointer-events: none;
     .dplayer-danmaku-item {
         display: inline-block;
         font-weight: bold;

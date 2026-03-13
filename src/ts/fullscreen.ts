@@ -12,20 +12,26 @@ class FullScreen {
         this.lastScrollPosition = { left: 0, top: 0 };
         this.player.events.on('webfullscreen', () => {
             this.player.resize();
+            this.player.danmaku?.seek();
         });
         this.player.events.on('webfullscreen_cancel', () => {
             this.player.resize();
             utils.setScrollPosition(this.lastScrollPosition);
+            this.player.danmaku?.seek();
         });
 
         this.fullscreenchange = () => {
             this.player.resize();
             if (this.isFullScreen('browser')) {
                 this.player.events.trigger('fullscreen');
+                // フルスクリーン移行後に弾幕を現在時刻から再開する
+                this.player.danmaku?.seek();
             } else {
                 utils.setScrollPosition(this.lastScrollPosition);
                 this.player.container.classList.remove('dplayer-fulled-browser');
                 this.player.events.trigger('fullscreen_cancel');
+                // フルスクリーン解除後も弾幕を現在時刻から再開する
+                this.player.danmaku?.seek();
             }
         };
         if (this.player.container.onfullscreenchange !== undefined) {
