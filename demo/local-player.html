@@ -318,6 +318,7 @@
         // -----------------------------------------------------------------------
         let tracks = [];
         let activeTrackIndex = null;
+        let trackCache = {};  // trackIndex -> parsed danmaku array
 
         function renderTrackPanel() {
             const panel = document.getElementById('track-panel');
@@ -373,14 +374,23 @@
 
         async function extractAndApply(track) {
             try {
-                setProgress(`字幕トラック ${track.index + 1} を抽出中...`, 0);
                 const { color, type } = getDanOptions();
+
+                // キャッシュがあれば再抽出しない
+                if (trackCache[track.index]) {
+                    applyDanmaku(trackCache[track.index]);
+                    return;
+                }
+
+                setProgress(`字幕トラック ${track.index + 1} を抽出中...`, 0);
                 const { text, filename } = await window.electronAPI.extractSubtitle({
                     filePath: _electronFilePath,
                     streamIndex: track.streamIndex,
                     codec: track.codec,
                 });
-                applyDanmaku(parseSubtitleText(text, filename, color, type));
+                const danmaku = parseSubtitleText(text, filename, color, type);
+                trackCache[track.index] = danmaku;
+                applyDanmaku(danmaku);
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 setStatus(`抽出エラー: ${msg || '不明なエラー'}`, 'err');
@@ -450,6 +460,7 @@
             const type = mimeMap[ext] || 'video/mp4';
 
             // 状態リセット
+            trackCache = {};
             document.getElementById('selected-name').textContent = name;
             document.getElementById('options-panel').style.display = 'flex';
             tracks = [];
