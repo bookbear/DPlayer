@@ -149,8 +149,12 @@ const _runningProcs = new Set();
 
 function spawnFFmpeg(args, onStderr) {
     return new Promise((resolve, reject) => {
-        const proc = spawn(getFFmpegPath(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        const proc = spawn(getFFmpegPath(), args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
         _runningProcs.add(proc);
+        // 動画ストリーミングとの I/O 競合を減らすため優先度を下げる
+        if (proc.pid) {
+            try { os.setPriority(proc.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
+        }
         const stderr = [];
         proc.stderr.on('data', (d) => {
             const s = d.toString();
